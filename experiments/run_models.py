@@ -119,8 +119,42 @@ def append_row(csv_path: Path, row: dict) -> None:
         writer.writerow(row)
 
 
-def run_one(cfg, arch, device, epochs, lr, batch_size, num_workers, seed, cache_dir):
-    """Train and score one (frame, model) pair and return a results row."""
+def run_one(
+    cfg: PreConfig,
+    arch: str,
+    device: torch.device,
+    epochs: int,
+    lr: float,
+    batch_size: int,
+    num_workers: int,
+    seed: int,
+    cache_dir: Path,
+) -> dict:
+    """Train and score one frame and model pair.
+
+    The cache for the frame is assumed to exist already, since ``main`` builds it
+    once per frame and reuses it across models.
+
+    Parameters
+    ----------
+    cfg : PreConfig
+        The preprocessing configuration naming the frame and its cache.
+    arch : str
+        The backbone name passed to :func:`make_model`.
+    device : torch.device
+        Device to train on.
+    epochs, batch_size, num_workers, seed : int
+        Training settings.
+    lr : float
+        Learning rate for the optimiser.
+    cache_dir : pathlib.Path
+        Directory holding the preprocessed cache for the frame.
+
+    Returns
+    -------
+    dict
+        A row of results with the columns in :data:`FIELDS`.
+    """
     set_seed(seed)
     train_loader, val_loader = data.train_val_loaders(
         cfg, cache_dir=cache_dir, batch_size=batch_size, num_workers=num_workers
@@ -158,7 +192,7 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--cache-dir", type=Path, default=config.DATA_DIR / "cache")
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "model_results.csv")
+    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "model_results.csv")
     parser.add_argument("--delete-cache", action="store_true")
     args = parser.parse_args()
 

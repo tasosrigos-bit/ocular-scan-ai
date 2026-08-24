@@ -49,11 +49,11 @@ reads the file and reports it. The order below is the order of the work.
 | Stage | Command | Writes | Read by |
 | --- | --- | --- | --- |
 | Clean split | `notebooks/01_data_exploration.ipynb` | `data/split.csv` | notebook 01 |
-| Size search | `python experiments/run_size.py` | `experiments/size_results.csv` | notebook 02 |
-| Model grid | `python experiments/run_models.py` | `experiments/model_results.csv` | notebook 03 |
+| Size search | `python experiments/run_size.py` | `experiments/results/size_results.csv` | notebook 02 |
+| Model grid | `python experiments/run_models.py` | `experiments/results/model_results.csv` | notebook 03 |
 | Final training | `python experiments/train_final.py --ckpt experiments/convnext_final.pt` | `experiments/convnext_final_e*.pt` | (the delivered weights) |
-| Per-epoch eval | `python experiments/eval_checkpoints.py --ckpt experiments/convnext_final.pt` | `experiments/checkpoint_eval.csv` | notebook 03 |
-| Clinic per-scan | `python experiments/eval_clinic_scan.py` | `experiments/clinic_scan_e1.csv` | notebook 03 |
+| Per-epoch eval | `python experiments/eval_checkpoints.py --ckpt experiments/convnext_final.pt` | `experiments/results/checkpoint_eval.csv` | notebook 03 |
+| Clinic per-scan | `python experiments/eval_clinic_scan.py` | `experiments/results/clinic_scan_e1.csv` | notebook 03 |
 
 The size search and the model grid are screens. They run on a class-balanced
 subsample of the training set to rank configurations against one another, so their
@@ -104,5 +104,4 @@ The weights are about 110 MB, over the file size that git accepts, so they are n
 in the repository. The delivered checkpoint `convnext_final_e1.pt` is attached to
 the latest release of this repository, on the Releases page, and can be loaded with
 `build_model("convnext_tiny", pretrained=False)` followed by `load_state_dict`.
-```
 

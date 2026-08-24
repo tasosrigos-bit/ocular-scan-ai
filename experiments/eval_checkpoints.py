@@ -115,7 +115,7 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=16,
                         help="Evaluation batch size, kept small to cap peak memory.")
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "checkpoint_eval.csv")
+    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "checkpoint_eval.csv")
     args = parser.parse_args()
 
     device = train.get_device()
@@ -140,6 +140,7 @@ def main() -> None:
     # Resume support. A row is appended per checkpoint, so an interrupted run
     # leaves every completed epoch on disk, and a rerun skips those epochs and
     # continues. The header is written only when the file is new.
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
     if args.out.exists():
         with args.out.open() as f:

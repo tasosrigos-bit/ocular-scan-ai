@@ -37,7 +37,7 @@ def main() -> None:
     parser.add_argument("--model", default="convnext_tiny")
     parser.add_argument("--width", type=int, default=384)
     parser.add_argument("--height", type=int, default=256)
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "clinic_scan_e1.csv")
+    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "clinic_scan_e1.csv")
     args = parser.parse_args()
 
     device = train.get_device()
@@ -72,6 +72,7 @@ def main() -> None:
     })
     for j, cls in enumerate(config.CLASSES):
         out[f"p_{cls}"] = probs[:, j].round(4)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.out, index=False)
     correct = int((out["truth"] == out["pred"]).sum())
     print(f"clinic {correct}/{n} correct; wrote {args.out}")

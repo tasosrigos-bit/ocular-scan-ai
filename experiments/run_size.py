@@ -168,7 +168,7 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--cache-dir", type=Path, default=config.DATA_DIR / "cache")
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "size_results.csv")
+    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "size_results.csv")
     parser.add_argument("--delete-cache", action="store_true", help="Delete each cache after its run.")
     args = parser.parse_args()
 
