@@ -1,0 +1,37 @@
+[project]
+name = "ocular-scan-ai"
+version = "0.1.0"
+description = "Retinal OCT B-scan classification into CNV, DME, DRUSEN and NORMAL, measured on acquisition devices absent from training."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pillow>=12.3.0",
+    "pymupdf>=1.28.2",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.0",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    "tqdm>=4.70.0",
+]
+
+# Without a build system the package is not installable, and `from ocular import
+# config` would only work when the interpreter happens to start in the repo root.
+# Installing it means notebooks, tests and scripts all import the same way.
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+# The package sits at the repo root as `ocular/`, not under `src/`, so the
+# backend has to be told where to look - its default is a src layout.
+[tool.uv.build-backend]
+module-root = ""
+module-name = "ocular"
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "pytest>=9.1.1",
+]
