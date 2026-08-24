@@ -1,7 +1,7 @@
-"""Run the size and preprocessing phase.
+"""Run the preprocessing search.
 
 This script evaluates the eleven preprocessing configurations that make up the
-size phase. Each configuration is preprocessed into a cache, a ResNet50 is trained
+preprocessing search. Each configuration is preprocessed into a cache, a ResNet50 is trained
 on it with class weights, and the trained model is scored on the held-out OCTDL
 set and on the clinic set. One row of metrics per configuration is appended to a
 results CSV, which the preprocessing notebook reads to report the search.
@@ -15,11 +15,11 @@ Usage
 -----
 Run every configuration with the defaults::
 
-    python experiments/run_size.py
+    python experiments/run_preprocessing.py
 
 Run a subset for a quick pilot::
 
-    python experiments/run_size.py --runs 4 7 --epochs 3
+    python experiments/run_preprocessing.py --runs 4 7 --epochs 3
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ import torch
 from ocular import config, data, eval, model, train
 from ocular.data import PreConfig
 
-#: The eleven configurations of the size phase. The fill knob is implied by the
+#: The eleven configurations of the preprocessing search. The fill knob is implied by the
 #: regime, black in the cropped regime and background fill in the full-frame one.
 RUNS = [
     {"run": 1, "set": "A", "ratio": "1:1", "cfg": PreConfig(448, 448, crop=False)},
@@ -160,7 +160,7 @@ def run_one(
 
 def main() -> None:
     """Parse arguments and run the requested configurations."""
-    parser = argparse.ArgumentParser(description="Run the size and preprocessing phase.")
+    parser = argparse.ArgumentParser(description="Run the preprocessing search.")
     parser.add_argument("--runs", type=int, nargs="*", help="Run numbers to execute, default all.")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -168,7 +168,7 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--cache-dir", type=Path, default=config.DATA_DIR / "cache")
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "size_results.csv")
+    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "preprocessing_results.csv")
     parser.add_argument("--delete-cache", action="store_true", help="Delete each cache after its run.")
     args = parser.parse_args()
 

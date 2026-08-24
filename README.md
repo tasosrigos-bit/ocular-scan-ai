@@ -49,13 +49,13 @@ reads the file and reports it. The order below is the order of the work.
 | Stage | Command | Writes | Read by |
 | --- | --- | --- | --- |
 | Clean split | `notebooks/01_data_exploration.ipynb` | `data/split.csv` | notebook 01 |
-| Size search | `python experiments/run_size.py` | `experiments/results/size_results.csv` | notebook 02 |
+| Preprocessing search | `python experiments/run_preprocessing.py` | `experiments/results/preprocessing_results.csv` | notebook 02 |
 | Model grid | `python experiments/run_models.py` | `experiments/results/model_results.csv` | notebook 03 |
 | Final training | `python experiments/train_final.py --ckpt experiments/convnext_final.pt` | `experiments/convnext_final_e*.pt` | (the delivered weights) |
 | Per-epoch eval | `python experiments/eval_checkpoints.py --ckpt experiments/convnext_final.pt` | `experiments/results/checkpoint_eval.csv` | notebook 03 |
 | Clinic per-scan | `python experiments/eval_clinic_scan.py` | `experiments/results/clinic_scan_e1.csv` | notebook 03 |
 
-The size search and the model grid are screens. They run on a class-balanced
+The preprocessing search and the model grid are screens. They run on a class-balanced
 subsample of the training set to rank configurations against one another, so their
 numbers are relative and lower than the final model. Only `train_final.py` runs on
 the full training set. Local training on Apple silicon is memory bound, so the size
@@ -72,7 +72,7 @@ The notebooks are meant to be read in order.
    the provided split, and the construction of the clean split that everything else
    depends on.
 2. `02_preprocessing.ipynb`. The preprocessing pipeline step by step, followed by the
-   size phase results. The finding is that curvature correction is the change that
+   preprocessing search results. The finding is that curvature correction is the change that
    moves the drusen class the most, and that a square frame with squishing transfers
    best.
 3. `03_modeling.ipynb`. The backbone grid, the final model trained on full data

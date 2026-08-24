@@ -1,10 +1,10 @@
 """Run the architecture grid on the frozen preprocessing.
 
-The size phase selected the cropped, curvature-corrected, squished pipeline. This
+The preprocessing search selected the cropped, curvature-corrected, squished pipeline. This
 script holds that preprocessing fixed at the two carried frames, 256 by 256 and
 384 by 256, and varies the model instead. Each model is trained on the same cache
 and scored on OCTDL and the clinic, so the rows are directly comparable and also
-comparable to the ResNet50 results in the size phase.
+comparable to the ResNet50 results in the preprocessing search.
 
 The Vision Transformer requires a fixed 224 by 224 input, so it is wrapped in
 :class:`ResizeTo`, which downsizes any input before the forward pass. The other
@@ -34,7 +34,7 @@ from torch import nn
 from ocular import config, data, eval, model, train
 from ocular.data import PreConfig
 
-#: The two frames carried from the size phase, both cropped and curvature corrected.
+#: The two frames carried from the preprocessing search, both cropped and curvature corrected.
 SIZES = [
     PreConfig(256, 256, crop=True, curvature=True),
     PreConfig(384, 256, crop=True, curvature=True),
