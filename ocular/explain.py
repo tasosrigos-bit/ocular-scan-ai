@@ -10,13 +10,6 @@ Grad-CAM and returns the scan together with its activation map. The individual
 pieces are exposed so that a caller can attach the hooks to a different layer or
 combine the map with the scan in a different way.
 
-Status
-------
-The visualisation helper :func:`overlay` is implemented and can be used as is.
-The three functions that compute the map, :func:`target_layer`, :func:`gradcam`
-and :func:`explain_scan`, are left as stubs to be completed. Each one documents
-exactly what it should return and the steps it should take.
-
 Notes
 -----
 Grad-CAM weights the activations of one convolutional layer by the gradient of a
@@ -57,9 +50,7 @@ def target_layer(model: nn.Module) -> nn.Module:
     torch.nn.Module
         The layer whose activations and gradients Grad-CAM will read.
     """
-    # TODO: return the last convolutional stage of the model. For ConvNeXt-Tiny
-    # this is model.features[-1]. Other backbones expose it differently.
-    raise NotImplementedError("target_layer is not implemented yet")
+    return model.features[-1]
 
 
 def gradcam(
@@ -97,8 +88,48 @@ def gradcam(
     activation channel by the mean of its gradient, sum over channels, keep the
     positive part with a ReLU, upsample to ``(H, W)`` and rescale to ``[0, 1]``.
     """
-    # TODO: implement the Grad-CAM computation described above.
-    raise NotImplementedError("gradcam is not implemented yet")
+    device = device or get_device()
+    model = model.to(device)
+    if image.dim() == 3:
+        image = image.unsqueeze(0)
+    image = image.to(device)
+
+    layer = target_layer(model)
+    activations: dict[str, torch.Tensor] = {}
+    gradients: dict[str, torch.Tensor] = {}
+
+    def forward_hook(module: nn.Module, inp: tuple, out: torch.Tensor) -> None:
+        activations["value"] = out
+
+    def backward_hook(module: nn.Module, grad_in: tuple, grad_out: tuple) -> None:
+        gradients["value"] = grad_out[0]
+
+    fh = layer.register_forward_hook(forward_hook)
+    bh = layer.register_full_backward_hook(backward_hook)
+    try:
+        model.zero_grad(set_to_none=True)
+        logits = model(image)
+        if target is None:
+            target = int(logits.argmax(1).item())
+        logits[0, target].backward()
+
+        act = activations["value"][0]
+        grad = gradients["value"][0]
+        weights = grad.mean(dim=(1, 2))
+        cam = torch.relu((weights[:, None, None] * act).sum(0))
+    finally:
+        fh.remove()
+        bh.remove()
+
+    cam = cam.detach().cpu().numpy()
+    cam -= cam.min()
+    peak = cam.max()
+    if peak > 0:
+        cam /= peak
+
+    h, w = image.shape[-2], image.shape[-1]
+    resized = Image.fromarray((cam * 255).astype(np.uint8)).resize((w, h))
+    return np.asarray(resized, dtype=np.float32) / 255.0
 
 
 def overlay(scan: np.ndarray, cam: np.ndarray, alpha: float = 0.4, cmap: str = "jet") -> np.ndarray:
@@ -166,6 +197,13 @@ def explain_scan(
     the model expects, matching :class:`ocular.data.OCTDataset`. Call
     :func:`gradcam` on that tensor. Return the plain scan for display and the map.
     """
-    # TODO: preprocess with cfg.apply, build the normalised tensor using
-    # IMAGENET_MEAN and IMAGENET_STD, call gradcam, and return (scan, cam).
-    raise NotImplementedError("explain_scan is not implemented yet")
+    device = device or get_device()
+    scan = cfg.apply(path)
+
+    mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
+    tensor = torch.from_numpy(scan).float().unsqueeze(0).repeat(3, 1, 1)
+    tensor = (tensor - mean) / std
+
+    cam = gradcam(model, tensor, target=target, device=device)
+    return scan, cam
