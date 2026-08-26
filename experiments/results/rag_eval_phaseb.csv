@@ -1,5 +1,5 @@
 pipeline,index,mode,rerank,n,faithfulness,answer_relevance,context_precision,latency_s
-basic,fixed__MedEmbed-base-v0.1,hybrid,gte-reranker-modernbert-base,50,1.0,1.0,0.784,6.6987
-agentic,fixed__MedEmbed-base-v0.1,hybrid,gte-reranker-modernbert-base,50,0.996,1.0,0.758,7.328
-basic,fixed__all-MiniLM-L6-v2,vector,none,50,1.0,1.0,0.607,1.3177
-agentic,fixed__all-MiniLM-L6-v2,vector,none,50,0.98,1.0,0.6984,2.7055
+basic,fixed__MedEmbed-base-v0.1,hybrid,gte-reranker-modernbert-base,50,1.0,1.0,0.828,5.8846
+agentic,fixed__MedEmbed-base-v0.1,hybrid,gte-reranker-modernbert-base,50,0.981,1.0,0.833,7.602
+basic,fixed__all-MiniLM-L6-v2,vector,none,50,1.0,0.996,0.692,1.2869
+agentic,fixed__all-MiniLM-L6-v2,vector,none,50,0.985,1.0,0.708,2.8485
