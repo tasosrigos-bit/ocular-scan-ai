@@ -2,10 +2,10 @@
 
 Companion to ``eval_clinic_scan.py``, which reports the prediction and class
 probabilities per scan but not where the model is looking. This script reuses
-the same checkpoint and preprocessing configuration, runs
-:func:`ocular.explain.explain_scan` on every scorable clinic B-scan, and writes
-the preprocessed scan and its class activation overlay as PNGs, plus one
-manifest row per scan recording the prediction and probabilities.
+the same checkpoint and preprocessing configuration, runs Grad-CAM on every
+scorable clinic B-scan, and writes the preprocessed scan and its class
+activation overlay as PNGs, plus one manifest row per scan recording the
+prediction and probabilities.
 
 The Grad-CAM target class is fixed to the model's own prediction for each scan,
 so the heat map always explains the call actually made, right or wrong.
@@ -18,6 +18,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
@@ -27,8 +28,8 @@ from PIL import Image
 from tqdm import tqdm
 
 from ocular import config, model, train
-from ocular.data import PreConfig, _clinic_frame
-from ocular.explain import explain_scan, overlay
+from ocular.data import IMAGENET_MEAN, IMAGENET_STD, PreConfig, _clinic_frame
+from ocular.explain import gradcam, overlay
 
 
 def save_gray(arr: np.ndarray, path: Path) -> None:
@@ -55,9 +56,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    out_dir = args.out_dir
+    manifest = args.manifest
+
     device = train.get_device()
     cfg = PreConfig(args.width, args.height, crop=True, curvature=True)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     net = model.build_model(args.model, pretrained=False)
     net.load_state_dict(torch.load(args.ckpt, map_location=device))
@@ -65,10 +69,11 @@ def main() -> None:
     net.eval()
 
     frame = _clinic_frame()
-    mean = torch.tensor((0.485, 0.456, 0.406)).view(3, 1, 1)
-    std = torch.tensor((0.229, 0.224, 0.225)).view(3, 1, 1)
+    mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
 
     rows = []
+    seen: dict[str, int] = {}
     for path, truth in tqdm(list(zip(frame["path"], frame["cls"])), desc="explaining"):
         scan_arr = cfg.apply(path)
         tensor = torch.from_numpy(scan_arr).float().unsqueeze(0).repeat(3, 1, 1)
@@ -77,12 +82,21 @@ def main() -> None:
             probs = torch.softmax(net(tensor), dim=1)[0].cpu().numpy()
         pred_idx = int(probs.argmax())
 
-        _, cam = explain_scan(net, path, cfg, target=pred_idx, device=device)
+        # Reuse the tensor already built for the forward pass; running Grad-CAM
+        # on it directly avoids preprocessing the file a second time.
+        cam = gradcam(net, tensor, target=pred_idx, device=device)
         blended = overlay(scan_arr, cam, alpha=args.alpha)
 
+        # Disambiguate any two scans that share a filename stem, so their PNGs
+        # do not silently overwrite each other.
         stem = path.stem
-        scan_png = args.out_dir / f"{stem}_scan.png"
-        overlay_png = args.out_dir / f"{stem}_overlay.png"
+        if stem in seen:
+            seen[stem] += 1
+            stem = f"{stem}_{seen[stem]}"
+        else:
+            seen[stem] = 0
+        scan_png = out_dir / f"{stem}_scan.png"
+        overlay_png = out_dir / f"{stem}_overlay.png"
         save_gray(scan_arr, scan_png)
         save_rgb(blended, overlay_png)
 
@@ -90,19 +104,21 @@ def main() -> None:
             "name": path.name,
             "truth": truth,
             "pred": config.CLASSES[pred_idx],
-            "scan_png": str(scan_png.relative_to(args.manifest.parent.parent)),
-            "overlay_png": str(overlay_png.relative_to(args.manifest.parent.parent)),
+            # os.path.relpath never raises when the paths are unrelated (unlike
+            # Path.relative_to), so custom --out-dir/--manifest cannot crash it.
+            "scan_png": os.path.relpath(scan_png, manifest.parent.parent),
+            "overlay_png": os.path.relpath(overlay_png, manifest.parent.parent),
         }
         for j, cls in enumerate(config.CLASSES):
             row[f"p_{cls}"] = round(float(probs[j]), 4)
         rows.append(row)
 
     out = pd.DataFrame(rows)
-    args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(args.manifest, index=False)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(manifest, index=False)
     correct = int((out["truth"] == out["pred"]).sum())
-    print(f"clinic {correct}/{len(out)} correct; wrote {len(out) * 2} images to {args.out_dir}")
-    print(f"manifest written to {args.manifest}")
+    print(f"clinic {correct}/{len(out)} correct; wrote {len(out) * 2} images to {out_dir}")
+    print(f"manifest written to {manifest}")
 
 
 if __name__ == "__main__":
