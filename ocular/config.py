@@ -24,9 +24,16 @@ SEED : int
 """
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Filesystem layout. All paths are absolute and derived from the repository root.
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
+
+# Load secrets (the Hugging Face token, LLM API keys) from a git-ignored ``.env``
+# at the repository root, so they reach every script and notebook that imports
+# the package without being hard-coded or committed.
+load_dotenv(ROOT / ".env")
 REPORTS_DIR = ROOT / "Reports"
 TRAINING_DIR = DATA_DIR / "raw" / "OCT2017" / "train"
 TESTING_DIR = DATA_DIR / "raw" / "OCT2017" / "test"
