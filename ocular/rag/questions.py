@@ -35,18 +35,30 @@ from ocular.rag.chunk import Chunk
 # Where the question set is written; git-ignored under the data tree.
 EVAL_DIR = config.DATA_DIR / "eval"
 
-_PROMPT = """You are curating evaluation questions for a clinical ophthalmology assistant.
+_PROMPT = """You are curating evaluation questions for a general ophthalmology clinical assistant.
 
-First decide whether this passage carries clinically or scientifically substantive
-ophthalmology content that a clinician would plausibly ask about. Set relevant=false for
-passages that are generic methodology, laboratory protocols, statistics, funding or
-conflict-of-interest statements, or study-administration detail. Set relevant=true only for
-content with genuine clinical or scientific substance.
+First decide whether this passage supports a targeted clinical question that a practising
+ophthalmologist would genuinely ask, across any subspecialty (retina, glaucoma, cornea,
+cataract, neuro-ophthalmology, paediatric ophthalmology, oculoplastics, uveitis and others).
 
-If relevant, write ONE realistic question a clinician might ask that this passage answers,
-plus a concise correct answer, in your own words. Do NOT copy phrases from the passage or
-refer to "the passage" or "the study" - the question must stand on its own. If NOT relevant,
-set relevant=false and leave question and answer empty.
+Set relevant=false when the passage is any of:
+- a specific study's results or statistics (proportions, counts, cohort demographics, model-fit numbers)
+- animal, cell or molecular bench research with no direct clinical bearing
+- device or software engineering, cost, sustainability, administration, funding or conflict-of-interest detail
+- a systemic or general-medicine topic that is not itself about the eye or vision, even when an
+  ophthalmology article mentions it (for example systemic hypertension, cholesterol or general pharmacology)
+- anything a clinician would not consult an assistant about.
+
+Set relevant=true only for durable, clinically useful knowledge that concerns the eye or vision itself:
+diagnosis and differential diagnosis, ophthalmic imaging interpretation, management and treatment
+choice, disease mechanism, complications and prognosis.
+
+If relevant, write ONE targeted question about an ocular or visual condition that a clinician would
+genuinely ask and that this passage answers, plus a concise correct answer, in your own words. The question must test transferable
+clinical knowledge, NOT the result of one particular study - do not ask about proportions,
+sample sizes, specific figures or study findings. Do NOT copy phrases from the passage or refer
+to "the passage" or "the study"; the question must stand on its own. If NOT relevant, set
+relevant=false and leave question and answer empty.
 
 PASSAGE:
 {text}"""
