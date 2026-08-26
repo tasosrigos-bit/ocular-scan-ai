@@ -37,8 +37,12 @@ def target_layer(model: nn.Module) -> nn.Module:
     """Return the convolutional layer Grad-CAM attaches its hooks to.
 
     The layer should be the last one that still keeps spatial structure, so that
-    its activations can be mapped back onto the scan. For the ConvNeXt-Tiny used
-    in this project that is the final stage, ``model.features[-1]``.
+    its activations can be mapped back onto the scan. The location differs by
+    backbone family: the ConvNeXt, EfficientNet and custom models built by
+    :func:`ocular.model.build_model` expose it as ``model.features[-1]``, while
+    ResNet exposes it as ``model.layer4[-1]``. Attention-only backbones (e.g.
+    ViT) have no such layer and are rejected with a clear error rather than
+    silently reading the wrong module.
 
     Parameters
     ----------
@@ -49,8 +53,20 @@ def target_layer(model: nn.Module) -> nn.Module:
     -------
     torch.nn.Module
         The layer whose activations and gradients Grad-CAM will read.
+
+    Raises
+    ------
+    ValueError
+        If the model exposes neither ``features`` nor ``layer4``.
     """
-    return model.features[-1]
+    if hasattr(model, "features"):
+        return model.features[-1]
+    if hasattr(model, "layer4"):  # ResNet-style backbones
+        return model.layer4[-1]
+    raise ValueError(
+        f"Grad-CAM target layer is not known for {type(model).__name__}; it "
+        "exposes neither `features` nor `layer4`."
+    )
 
 
 def gradcam(
