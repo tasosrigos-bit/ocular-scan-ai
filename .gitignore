@@ -18,3 +18,9 @@ data/
 # Never commit them. The de-identified B-scans live under data/raw/bscans.
 Reports/
 *.pdf
+
+# Secrets: HF token, LLM API keys. Never commit.
+.env
+
+# Claude Code local config and scratch.
+.claude/
