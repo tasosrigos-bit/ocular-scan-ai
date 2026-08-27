@@ -46,7 +46,7 @@ def save_rgb(arr: np.ndarray, path: Path) -> None:
 def main() -> None:
     """Parse arguments, explain every clinic scan, and write images and a manifest."""
     parser = argparse.ArgumentParser(description="Grad-CAM explanations for every clinic B-scan.")
-    parser.add_argument("--ckpt", type=Path, default=Path(__file__).parent / "convnext_final_e1.pt")
+    parser.add_argument("--ckpt", type=Path, default=config.CKPT)
     parser.add_argument("--model", default="convnext_tiny")
     parser.add_argument("--width", type=int, default=384)
     parser.add_argument("--height", type=int, default=256)

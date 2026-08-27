@@ -34,7 +34,7 @@ from ocular.classifier.data import OCTDataset, PreConfig, _clinic_frame
 def main() -> None:
     """Parse arguments, score every clinic scan, and write the per-scan table."""
     parser = argparse.ArgumentParser(description="Per-scan clinic predictions for one checkpoint.")
-    parser.add_argument("--ckpt", type=Path, default=Path(__file__).parent / "convnext_final_e1.pt")
+    parser.add_argument("--ckpt", type=Path, default=config.CKPT)
     parser.add_argument("--model", default="convnext_tiny")
     parser.add_argument("--width", type=int, default=384)
     parser.add_argument("--height", type=int, default=256)

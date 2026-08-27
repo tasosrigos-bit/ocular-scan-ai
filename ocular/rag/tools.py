@@ -92,7 +92,7 @@ def make_search_corpus(
 
 # The preprocessing selected for the final model, and the model of record.
 _PREPROCESS = PreConfig(384, 256, crop=True, curvature=True)
-DEFAULT_CKPT = config.ROOT / "experiments" / "convnext_final_e1.pt"
+DEFAULT_CKPT = config.CKPT
 
 _CLASSIFIERS: dict[str, tuple] = {}
 
