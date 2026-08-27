@@ -10,12 +10,24 @@ The Vision Transformer requires a fixed 224 by 224 input, so it is wrapped in
 :class:`ResizeTo`, which downsizes any input before the forward pass. The other
 backbones accept the cache frame directly through their global pooling.
 
+Like the preprocessing search, the grid is a screen rather than a final measurement,
+so the reported results were produced on a class-balanced subsample of three thousand
+training images per class, requested with ``--per-class``. That setting is recorded in
+the ``per_class`` column of the results CSV and in the name of the cache, so a
+subsampled cache can never be mistaken for a full one.
+
 The grid is resumable, a (frame, model) pair already present in the results CSV is
 skipped, and the cache for a frame is reused across all its models.
 
 Usage
 -----
-    python experiments/run_models.py --epochs 5 --num-workers 2 --out model_results.csv
+Reproduce the reported grid::
+
+    python experiments/run_models.py --per-class 3000 --epochs 5 --num-workers 2
+
+Train on the full split, which is the default::
+
+    python experiments/run_models.py --epochs 5 --num-workers 2
 """
 from __future__ import annotations
 
@@ -48,7 +60,7 @@ MODELS = ["resnet50", "convnext_tiny", "vit_b_16", "custom"]
 VIT_SIZE = 224
 
 FIELDS = [
-    "model", "tag", "width", "height", "params", "seed", "epochs",
+    "model", "tag", "width", "height", "params", "seed", "epochs", "per_class",
     "octdl_acc", "octdl_macro_f1",
     "octdl_recall_CNV", "octdl_recall_DME", "octdl_recall_DRUSEN", "octdl_recall_NORMAL",
     "clinic_acc", "clinic_macro_f1",
@@ -130,6 +142,7 @@ def run_one(
     num_workers: int,
     seed: int,
     cache_dir: Path,
+    per_class: int | None,
 ) -> dict:
     """Train and score one frame and model pair.
 
@@ -150,6 +163,10 @@ def run_one(
         Learning rate for the optimiser.
     cache_dir : pathlib.Path
         Directory holding the preprocessed cache for the frame.
+    per_class : int or None
+        Images per class kept from the training split, or ``None`` for all of it.
+        It must match the value the cache was built with, because it forms part of
+        the cache name.
 
     Returns
     -------
@@ -158,9 +175,11 @@ def run_one(
     """
     set_seed(seed)
     train_loader, val_loader = data.train_val_loaders(
-        cfg, cache_dir=cache_dir, batch_size=batch_size, num_workers=num_workers
+        cfg, cache_dir=cache_dir, batch_size=batch_size, num_workers=num_workers,
+        per_class=per_class,
     )
-    weights = data.class_weights(np.load(cache_dir / f"{cfg.tag}_train_y.npy"))
+    stem = data.cache_stem(cfg, per_class)
+    weights = data.class_weights(np.load(cache_dir / f"{stem}_train_y.npy"))
 
     net = make_model(arch)
     start = time.time()
@@ -175,7 +194,7 @@ def run_one(
 
     return {
         "model": arch, "tag": cfg.tag, "width": cfg.out_w, "height": cfg.out_h,
-        "params": model.count_parameters(net), "seed": seed, "epochs": epochs,
+        "params": model.count_parameters(net), "seed": seed, "epochs": epochs, "per_class": per_class,
         **_prefixed(octdl, "octdl"),
         **_prefixed(clinic, "clinic"),
         "min_per_epoch": round(min_per_epoch, 2),
@@ -192,32 +211,40 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=config.SEED)
+    parser.add_argument(
+        "--per-class", type=int, default=0,
+        help="Training images per class, 0 for the full split, which is the default. "
+             "The reported grid was screened with 3000.",
+    )
     parser.add_argument("--cache-dir", type=Path, default=config.DATA_DIR / "cache")
     parser.add_argument("--out", type=Path, default=Path(__file__).parent / "results" / "model_results.csv")
     parser.add_argument("--delete-cache", action="store_true")
     args = parser.parse_args()
 
     device = train.get_device()
+    per_class = args.per_class if args.per_class else None
     already = done_pairs(args.out)
 
     for cfg in SIZES:
         pending = [a for a in args.models if (cfg.tag, a) not in already]
         if not pending:
             continue
-        data.build_cache(cfg, out_dir=args.cache_dir)
+        data.build_cache(cfg, out_dir=args.cache_dir, per_class=per_class)
         for arch in pending:
-            print(f"=== {cfg.tag}  {arch} ===")
+            print(f"=== {data.cache_stem(cfg, per_class)}  {arch} ===")
             row = run_one(
                 cfg, arch, device,
                 args.epochs, args.lr, args.batch_size, args.num_workers, args.seed, args.cache_dir,
+                per_class,
             )
             append_row(args.out, row)
             print(f"    OCTDL acc {row['octdl_acc']:.3f}  macro-F1 {row['octdl_macro_f1']:.3f}  "
                   f"DRUSEN {row['octdl_recall_DRUSEN']:.3f}  params {row['params'] / 1e6:.1f}M")
         if args.delete_cache:
+            stem = data.cache_stem(cfg, per_class)
             for split in ("train", "val"):
                 for suffix in ("x", "y"):
-                    (args.cache_dir / f"{cfg.tag}_{split}_{suffix}.npy").unlink(missing_ok=True)
+                    (args.cache_dir / f"{stem}_{split}_{suffix}.npy").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

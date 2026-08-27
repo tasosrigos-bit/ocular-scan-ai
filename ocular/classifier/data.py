@@ -7,7 +7,9 @@ tensors. It provides four things.
 * A :class:`PreConfig` that names one preprocessing configuration, so that a
   cache and its loaders can be identified unambiguously.
 * :func:`build_cache`, which materialises the preprocessed Kermany training and
-  validation splits to disk under a given configuration.
+  validation splits to disk under a given configuration, optionally keeping only a
+  fixed number of training images per class, with :func:`cache_stem` naming the
+  result so that a subsampled cache never collides with a full one.
 * :class:`OCTDataset` and :func:`train_val_loaders`, which serve the cache as
   three-channel tensors with optional training augmentation.
 * :func:`octdl_loader` and :func:`clinic_loader`, which serve the two held-out
@@ -188,11 +190,34 @@ def class_weights(y: np.ndarray) -> torch.Tensor:
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def cache_stem(cfg: PreConfig, per_class: int | None = None) -> str:
+    """Return the filename stem that identifies a cache on disk.
+
+    A cache is named by the configuration that produced it. When only part of the
+    training split was used, the stem carries that count as well, so that a
+    subsampled cache and a full one under the same configuration never collide.
+
+    Parameters
+    ----------
+    cfg : PreConfig
+        The preprocessing configuration.
+    per_class : int, optional
+        Images per class retained from the training split, or ``None`` for all.
+
+    Returns
+    -------
+    str
+        The stem, to which ``_{split}_x.npy`` and ``_{split}_y.npy`` are appended.
+    """
+    return cfg.tag if per_class is None else f"{cfg.tag}_pc{per_class}"
+
+
 def build_cache(
     cfg: PreConfig,
     out_dir: str | Path | None = None,
     split_csv: str | Path | None = None,
     splits: tuple[str, ...] = ("train", "val"),
+    per_class: int | None = None,
     progress: bool = True,
 ) -> Path:
     """Materialise the preprocessed Kermany splits under one configuration.
@@ -212,37 +237,48 @@ def build_cache(
         Path to the split file. Defaults to ``data/split.csv``.
     splits : tuple of str, optional
         Which splits to build.
+    per_class : int, optional
+        If given, retain only this many images per class from the training split,
+        drawn without replacement under the project seed so that the subsample is
+        reproducible. The validation split is always built in full, because it is
+        used to monitor training rather than to score a run. This is how the
+        preprocessing search is screened, and it is reflected in the cache name.
     progress : bool, optional
         Whether to show a progress bar.
 
     Returns
     -------
     pathlib.Path
-        The output directory. Files are named ``{tag}_{split}_x.npy`` and
-        ``{tag}_{split}_y.npy``.
+        The output directory. Files are named ``{stem}_{split}_x.npy`` and
+        ``{stem}_{split}_y.npy``, where the stem comes from :func:`cache_stem`.
     """
     out_dir = Path(out_dir) if out_dir is not None else config.DATA_DIR / "cache"
     out_dir.mkdir(parents=True, exist_ok=True)
     df = pd.read_csv(split_csv if split_csv is not None else config.DATA_DIR / "split.csv")
     label_id = {c: i for i, c in enumerate(config.CLASSES)}
+    stem = cache_stem(cfg, per_class)
 
     for split in splits:
         part = df[df["split"] == split].reset_index(drop=True)
+        if per_class is not None and split == "train":
+            part = (part.groupby("class", group_keys=False)
+                        .sample(n=per_class, random_state=config.SEED)
+                        .reset_index(drop=True))
         n = len(part)
         x = open_memmap(
-            out_dir / f"{cfg.tag}_{split}_x.npy",
+            out_dir / f"{stem}_{split}_x.npy",
             mode="w+", dtype=np.uint8, shape=(n, cfg.out_h, cfg.out_w),
         )
         y = np.empty(n, dtype=np.int64)
         rows = zip(part["filename"], part["class"])
         if progress:
-            rows = tqdm(rows, total=n, desc=f"{cfg.tag} {split}")
+            rows = tqdm(rows, total=n, desc=f"{stem} {split}")
         for i, (fname, cls) in enumerate(rows):
             img = cfg.apply(config.TRAINING_DIR / cls / fname)
             x[i] = (img * 255).astype(np.uint8)
             y[i] = label_id[cls]
         x.flush()
-        np.save(out_dir / f"{cfg.tag}_{split}_y.npy", y)
+        np.save(out_dir / f"{stem}_{split}_y.npy", y)
     return out_dir
 
 
@@ -253,6 +289,7 @@ def train_val_loaders(
     augment: bool = True,
     num_workers: int = 4,
     rotate: float = 15.0,
+    per_class: int | None = None,
 ) -> tuple[DataLoader, DataLoader]:
     """Build training and validation loaders from a cache.
 
@@ -270,6 +307,9 @@ def train_val_loaders(
         Number of worker processes per loader.
     rotate : float, optional
         Maximum rotation angle in degrees for training augmentation.
+    per_class : int, optional
+        The subsample the cache was built with, which must match the value passed
+        to :func:`build_cache` because it forms part of the cache name.
 
     Returns
     -------
@@ -277,10 +317,11 @@ def train_val_loaders(
         The training and validation loaders.
     """
     cache_dir = Path(cache_dir) if cache_dir is not None else config.DATA_DIR / "cache"
+    stem = cache_stem(cfg, per_class)
 
     def read(split: str) -> tuple[np.ndarray, np.ndarray]:
-        x = np.load(cache_dir / f"{cfg.tag}_{split}_x.npy", mmap_mode="r")
-        y = np.load(cache_dir / f"{cfg.tag}_{split}_y.npy")
+        x = np.load(cache_dir / f"{stem}_{split}_x.npy", mmap_mode="r")
+        y = np.load(cache_dir / f"{stem}_{split}_y.npy")
         return x, y
 
     xt, yt = read("train")
