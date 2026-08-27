@@ -119,20 +119,26 @@ that do the work and states the exact command that produced the file it reads.
 
 ## Reproducing
 
+Install the environment, then fetch the two release assets from the repository root.
+
 ```
 uv sync
+gh release download v0.1.0 --dir experiments --pattern convnext_final_e1.pt
+gh release download v0.1.0 --pattern rag-artifacts.tar.gz && tar xzf rag-artifacts.tar.gz
 ```
 
-For the retrieval assistant, put an LLM API key in a git-ignored `.env` at the
-repository root, as `GEMINI_API_KEY=...`.
+That is enough for notebooks 03 to 08 and for the application, since the results, the
+clinic scans and the patient-level split are all in the repository. For the assistant,
+add an LLM API key to a git-ignored `.env` at the repository root as
+`GEMINI_API_KEY=...`, and start the application with
 
-Place the datasets under `data/raw` so that `data/raw/OCT2017`, `data/raw/octdl_dl`
-and `data/raw/bscans` exist. Run notebook 01 to write `data/split.csv`. From there,
-either re-run the experiment scripts to regenerate the result files and the weights,
-or use the committed result files and go straight to the notebooks. The retrieval
-corpus and its indexes are built once with `scripts/build_corpus.py` and
-`scripts/build_all_indexes.py`, and the application is started with
-`uv run streamlit run app/streamlit_app.py`.
+```
+uv run streamlit run app/streamlit_app.py
+```
+
+Notebooks 01 and 02 additionally need the two public datasets, described under *The
+data* below. Every reported number can be regenerated rather than read, by re-running
+the scripts listed under *What runs on what*, but nothing has to be.
 
 ## The data
 
