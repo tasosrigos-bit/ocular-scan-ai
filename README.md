@@ -60,7 +60,7 @@ The image classifier:
 
 | Stage | Command | Writes | Read by |
 | --- | --- | --- | --- |
-| Clean split | `notebooks/01_data_exploration.ipynb` | `data/split.csv` | notebook 01 |
+| Clean split | `notebooks/01_classifier_data.ipynb` | `data/split.csv` | notebook 01 |
 | Preprocessing search | `python experiments/run_preprocessing.py` | `experiments/results/preprocessing_results.csv` | notebook 02 |
 | Model grid | `python experiments/run_models.py` | `experiments/results/model_results.csv` | notebook 03 |
 | Final training | `python experiments/train_final.py --ckpt experiments/convnext_final.pt` | `experiments/convnext_final_e*.pt` | (the delivered weights) |
@@ -93,18 +93,18 @@ The notebooks are meant to be read in order. The first four cover the image
 classifier, the last four cover the retrieval assistant. Each one names the functions
 that do the work and states the exact command that produced the file it reads.
 
-1. `01_data_exploration.ipynb`. The datasets and their roles, the patient leakage in
+1. `01_classifier_data.ipynb`. The datasets and their roles, the patient leakage in
    the provided split, and the construction of the clean split that everything else
    depends on.
-2. `02_preprocessing.ipynb`. The preprocessing pipeline step by step, followed by the
+2. `02_classifier_preprocessing.ipynb`. The preprocessing pipeline step by step, followed by the
    preprocessing search results. The finding is that curvature correction is the change
    that moves the drusen class the most, and that a square frame with squishing transfers
    best.
-3. `03_modeling.ipynb`. The backbone grid, the final model trained on full data
+3. `03_classifier_modeling.ipynb`. The backbone grid, the final model trained on full data
    examined epoch by epoch, the clinic evaluation, and a diagnosis of the drusen
    misses. The finding is that transfer peaks at the first epoch and that the
    remaining drusen errors are a resolution and volume limit rather than a threshold.
-4. `04_explainability.ipynb`. Grad-CAM over the delivered checkpoint, showing where
+4. `04_classifier_explainability.ipynb`. Grad-CAM over the delivered checkpoint, showing where
    the model looks on one scan per class and on the drusen misses, and a diagnosis of
    the off-tissue attention on a few of those misses.
 5. `05_rag_corpus.ipynb`. The ophthalmology corpus, drawn from a whitelist of PubMed
