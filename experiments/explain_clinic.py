@@ -27,9 +27,10 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 
-from ocular import config, model, train
-from ocular.data import IMAGENET_MEAN, IMAGENET_STD, PreConfig, _clinic_frame
-from ocular.explain import gradcam, overlay
+from ocular import config
+from ocular.classifier import model, train
+from ocular.classifier.data import IMAGENET_MEAN, IMAGENET_STD, PreConfig, _clinic_frame
+from ocular.classifier.explain import gradcam, overlay
 
 
 def save_gray(arr: np.ndarray, path: Path) -> None:

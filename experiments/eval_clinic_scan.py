@@ -26,8 +26,9 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from ocular import config, model, train
-from ocular.data import OCTDataset, PreConfig, _clinic_frame
+from ocular import config
+from ocular.classifier import model, train
+from ocular.classifier.data import OCTDataset, PreConfig, _clinic_frame
 
 
 def main() -> None:

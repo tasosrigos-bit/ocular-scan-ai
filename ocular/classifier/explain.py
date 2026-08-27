@@ -29,8 +29,8 @@ from PIL import Image
 from torch import nn
 
 from ocular import config
-from ocular.data import IMAGENET_MEAN, IMAGENET_STD, PreConfig
-from ocular.train import get_device
+from ocular.classifier.data import IMAGENET_MEAN, IMAGENET_STD, PreConfig
+from ocular.classifier.train import get_device
 
 
 def target_layer(model: nn.Module) -> nn.Module:

@@ -20,9 +20,9 @@ import torch
 from langchain_core.tools import BaseTool, tool
 
 from ocular import config
-from ocular import model as cnn
-from ocular import train
-from ocular.data import OCTDataset, PreConfig
+from ocular.classifier import model as cnn
+from ocular.classifier import train
+from ocular.classifier.data import OCTDataset, PreConfig
 from ocular.rag import rerank, retrieve
 from ocular.rag.index import Index
 from ocular.rag.retrieve import Hit

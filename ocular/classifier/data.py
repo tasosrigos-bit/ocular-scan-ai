@@ -43,7 +43,7 @@ from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 from ocular import config
-from ocular.preprocess import preprocess
+from ocular.classifier.preprocess import preprocess
 
 #: Per-channel ImageNet mean, applied to match pretrained backbones.
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
