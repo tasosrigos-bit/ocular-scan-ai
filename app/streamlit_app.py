@@ -2,9 +2,12 @@
 
 A clinician uploads an OCT B-scan. The trained classifier predicts its class, and a
 chatbot answers questions about it, grounding clinical answers in the ophthalmology
-literature. The chatbot is a LangGraph agent with two tools, ``classify_scan`` (the
-convolutional classifier) and ``search_corpus`` (the retrieval system selected in
-the experiments), and the agent decides which to use for each question.
+literature. The chatbot gives the language model two tools, ``classify_scan`` (the
+convolutional classifier) and ``search_corpus`` (the retrieval system selected in the
+experiments). The model calls them in a single round and then answers from the
+results. The retrieval is basic, one search under the selected configuration rather
+than an agentic loop that reformulates and searches again, following the Phase B
+finding in notebook 08 that the agent brings no gain at higher cost.
 
 Run with::
 
@@ -70,19 +73,42 @@ def _chat():
     )
 
 
+def _text(content) -> str:
+    """Flatten a chat message's content, which Gemini may return as blocks."""
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+
+
 def _reply(messages: list[dict]) -> str:
-    """Run the agent over the conversation and return its final answer as text."""
-    from langgraph.prebuilt import create_react_agent
+    """Answer with basic RAG: one round of tool calls, then a grounded answer.
+
+    The model is given the two tools and may call ``classify_scan`` and
+    ``search_corpus``, each of which runs once. ``search_corpus`` performs a single
+    retrieval under the selected configuration (fixed chunks, the biomedical
+    embedder, hybrid retrieval, the gte reranker), so the assistant is basic rather
+    than agentic: it does not loop to reformulate the query and search again, which
+    the Phase B evaluation in notebook 08 found brings no gain at higher cost. The
+    tool results are then fed back once and the model writes the final cited answer.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
     search = tools.make_search_corpus(_index(), rerank_model=rerank.DEFAULT_RERANKER)
     classify = tools.make_classify_scan(lambda: st.session_state.get("scan_path"))
-    agent = create_react_agent(_chat(), [classify, search], prompt=_SYSTEM)
+    toolmap = {"search_corpus": search, "classify_scan": classify}
 
-    out = agent.invoke({"messages": [(m["role"], m["content"]) for m in messages]})
-    content = out["messages"][-1].content
-    return content if isinstance(content, str) else "".join(
-        block.get("text", "") for block in content if isinstance(block, dict)
-    )
+    convo = [SystemMessage(_SYSTEM)]
+    for m in messages:
+        convo.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
+
+    reply = _chat().bind_tools([search, classify]).invoke(convo)
+    if reply.tool_calls:
+        convo.append(reply)
+        for call in reply.tool_calls:
+            result = toolmap[call["name"]].invoke(call["args"])
+            convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        reply = _chat().invoke(convo)  # unbound, so it must produce the final answer as text
+    return _text(reply.content)
 
 
 st.set_page_config(page_title="Ocular Scan AI", page_icon="👁️", layout="wide")
