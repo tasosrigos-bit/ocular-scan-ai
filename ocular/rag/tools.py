@@ -90,8 +90,10 @@ def make_search_corpus(
 # classify_scan
 # ---------------------------------------------------------------------------
 
-# The preprocessing selected for the final model, and the model of record.
-_PREPROCESS = PreConfig(384, 256, crop=True, curvature=True)
+# The preprocessing selected for the final model, and the model of record. Public
+# because the application reads it too, so the scan that is explained is always the
+# same one that was classified.
+PREPROCESS = PreConfig(384, 256, crop=True, curvature=True)
 DEFAULT_CKPT = config.CKPT
 
 _CLASSIFIERS: dict[str, tuple] = {}
@@ -125,7 +127,7 @@ def predict_scan(path, *, ckpt=DEFAULT_CKPT, device=None) -> tuple[str, float, d
         The predicted class, its probability, and the full probability per class.
     """
     net, device = load_classifier(ckpt=ckpt, device=device)
-    img = (_PREPROCESS.apply(path) * 255).astype(np.uint8)
+    img = (PREPROCESS.apply(path) * 255).astype(np.uint8)
     tensor, _ = OCTDataset(img[None], [0], augment=False)[0]
     with torch.no_grad():
         probs = torch.softmax(net(tensor.unsqueeze(0).to(device)), dim=1)[0].cpu().numpy()

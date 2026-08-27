@@ -175,7 +175,10 @@ def overlay(scan: np.ndarray, cam: np.ndarray, alpha: float = 0.4, cmap: str = "
         ) / 255.0
     heat = colormaps[cmap](cam)[..., :3]
     base = np.stack([scan] * 3, axis=-1)
-    return (1.0 - alpha) * base + alpha * heat
+    blend = (1.0 - alpha) * base + alpha * heat
+    # Rounding in the colour map can carry the blend a fraction past 1.0, which some
+    # image renderers reject outright, so the result is clipped to the stated range.
+    return np.clip(blend, 0.0, 1.0)
 
 
 def explain_scan(
