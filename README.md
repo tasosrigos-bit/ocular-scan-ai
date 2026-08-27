@@ -65,19 +65,18 @@ The image classifier:
 | Preprocessing search | `python experiments/run_preprocessing.py --per-class 3000 --epochs 5` | `experiments/results/preprocessing_results.csv` | notebook 02 |
 | Model grid | `python experiments/run_models.py --per-class 3000 --epochs 5` | `experiments/results/model_results.csv` | notebook 03 |
 | Final training | `python experiments/train_final.py --ckpt experiments/convnext_final.pt` | `experiments/convnext_final_e*.pt` | (the delivered weights) |
-| Per-epoch eval | `python experiments/eval_checkpoints.py --ckpt experiments/convnext_final_e1.pt` | `experiments/results/checkpoint_eval.csv` | notebook 03 |
-| Clinic per-scan | `python experiments/eval_clinic_scan.py` | `experiments/results/clinic_scan_e1.csv` | notebook 03 |
-| Clinic Grad-CAM | `python experiments/explain_clinic.py` | `experiments/results/clinic_explanations.csv` | notebook 04 |
+| Per-epoch eval | `python experiments/eval_checkpoints.py --ckpt experiments/convnext_final_e1.pt` | `experiments/results/checkpoint_eval.csv` | notebooks 03 and 04 |
+| Clinic per-scan | `python experiments/eval_clinic_scan.py` | `experiments/results/clinic_scan_e1.csv` | notebook 04 |
 
 The retrieval assistant:
 
 | Stage | Command | Writes | Read by |
 | --- | --- | --- | --- |
-| Corpus | `python scripts/build_corpus.py` | `data/corpus/` | notebook 05 |
-| Indexes | `python scripts/build_all_indexes.py` | `data/index/` | notebooks 06, 07 |
-| Eval questions | `python scripts/build_questions.py --n 50` | `data/eval/questions.jsonl` | notebook 08 |
-| Retrieval eval | `python experiments/run_rag_eval.py` | `experiments/results/rag_eval.csv` | notebook 08 |
-| Answering eval | `python experiments/run_phaseb.py` | `experiments/results/rag_eval_phaseb.csv` | notebook 08 |
+| Corpus | `python scripts/build_corpus.py` | `data/corpus/` | notebook 06 |
+| Indexes | `python scripts/build_all_indexes.py` | `data/index/` | notebooks 07, 08 |
+| Eval questions | `python scripts/build_questions.py --n 50` | `data/eval/questions.jsonl` | notebook 09 |
+| Retrieval eval | `python experiments/run_rag_eval.py` | `experiments/results/rag_eval.csv` | notebook 09 |
+| Answering eval | `python experiments/run_phaseb.py` | `experiments/results/rag_eval_phaseb.csv` | notebook 09 |
 
 The preprocessing search and the model grid are screens. They run on a class-balanced
 subsample of the training set to rank configurations against one another, so their
@@ -90,7 +89,7 @@ repeating any training, search or evaluation.
 
 ## The notebooks
 
-The notebooks are meant to be read in order. The first four cover the image
+The notebooks are meant to be read in order. The first five cover the image
 classifier, the last four cover the retrieval assistant. Each one names the functions
 that do the work and states the exact command that produced the file it reads.
 
@@ -101,20 +100,22 @@ that do the work and states the exact command that produced the file it reads.
    preprocessing search results. The finding is that curvature correction is the change
    that moves the drusen class the most, and that a square frame with squishing transfers
    best.
-3. `03_classifier_training.ipynb`. The backbone grid, the final model trained on full data
-   examined epoch by epoch, the clinic evaluation, and a diagnosis of the drusen
-   misses. The finding is that transfer peaks at the first epoch and that the
-   remaining drusen errors are a resolution and volume limit rather than a threshold.
-4. `04_classifier_explainability.ipynb`. Grad-CAM over the delivered checkpoint, showing where
-   the model looks on one scan per class and on the drusen misses, and a diagnosis of
-   the off-tissue attention on a few of those misses.
-5. `05_rag_corpus.ipynb`. The ophthalmology corpus, drawn from a whitelist of PubMed
+3. `03_classifier_training.ipynb`. The backbone grid and the final model trained on full
+   data, examined epoch by epoch. The finding is that transfer peaks at the first epoch,
+   which fixes the training schedule at one epoch.
+4. `04_classifier_transfer.ipynb`. The delivered model scored on all three devices. The
+   finding is that only drusen fails to transfer, falling from 0.996 on the training
+   scanner to 0.545 on the clinic while the other three classes hold, which places the
+   weakness in the change of scanner rather than in the class.
+5. `05_classifier_explainability.ipynb`. Grad-CAM over the delivered checkpoint, showing
+   where the model looks on one scan per class and on the drusen misses.
+6. `06_rag_corpus.ipynb`. The ophthalmology corpus, drawn from a whitelist of PubMed
    Central journals and filtered to a reuse-permitting licence.
-6. `06_rag_chunking.ipynb`. The three strategies that cut each article into the short
+7. `07_rag_chunking.ipynb`. The three strategies that cut each article into the short
    passages retrieval searches over.
-7. `07_rag_retrieval.ipynb`. Embedding the passages, the dense and lexical indexes,
+8. `08_rag_retrieval.ipynb`. Embedding the passages, the dense and lexical indexes,
    the three retrieval modes and the reranker.
-8. `08_rag_evaluation.ipynb`. The reference-free evaluation that selects the retrieval
+9. `09_rag_evaluation.ipynb`. The reference-free evaluation that selects the retrieval
    configuration and compares basic against agentic answering.
 
 ## Reproducing
@@ -127,7 +128,7 @@ gh release download v0.1.0 --dir experiments --pattern convnext_final_e1.pt
 gh release download v0.1.0 --pattern rag-artifacts.tar.gz && tar xzf rag-artifacts.tar.gz
 ```
 
-That is enough for notebooks 03 to 08 and for the application, since the results, the
+That is enough for notebooks 03 to 09 and for the application, since the results, the
 clinic scans and the patient-level split are all in the repository. For the assistant,
 add an LLM API key to a git-ignored `.env` at the repository root as
 `GEMINI_API_KEY=...`, and start the application with
@@ -182,7 +183,7 @@ tar xzf rag-artifacts.tar.gz
 ```
 
 unpacks them into `data/` at 134 MB. That archive carries the corpus, the three chunk
-caches that notebook 06 compares, the question set, and the one index the deployed
+caches that notebook 07 compares, the question set, and the one index the deployed
 system uses, `fixed__MedEmbed-base-v0.1`. The other eight indexes of the Phase A sweep
 are omitted deliberately, because nothing reads them. Notebook 08 reports that sweep
 from the committed `rag_eval.csv`, and rebuilding them is only necessary to repeat the
@@ -194,18 +195,18 @@ sweep itself, with `scripts/build_all_indexes.py`.
 **Three small inputs are tracked despite living under `data/`.** These are `split.csv`
 at 3 MB, which pins the exact patient-level division every reported number was measured
 on, `OCTDL_labels.csv` at 53 KB, which maps the OCTDL vocabulary onto the four classes,
-and the corpus manifest at 99 KB, which notebook 05 reads. Carrying them costs little
+and the corpus manifest at 99 KB, which notebook 06 reads. Carrying them costs little
 and removes a regeneration step that could silently diverge.
 
 ### Reading the results without the data
 
 Every number and figure this project reports is committed under
 `experiments/results/`, so the notebooks that present those results run on a fresh
-clone. Notebook 03 needs nothing beyond the clone, and notebook 08 reads its two result
-files directly. Notebook 04 needs only the delivered checkpoint, since the clinic scans
-it explains are tracked. Notebooks 05 to 07 need the retrieval archive. Notebooks 01
-and 02 build and illustrate the classifier pipeline itself and are the only two that
-need the 5.8 GB of downloaded imagery.
+clone. Notebooks 03, 04 and 09 need nothing beyond the clone. Notebook 05 needs only the
+delivered checkpoint, since the clinic scans it explains are tracked, and notebook 04
+needs it too for the one cell that rescores the clinic set. Notebooks 06 to 08 need the
+retrieval archive. Notebooks 01 and 02 build and illustrate the classifier pipeline
+itself and are the only two that need the 5.8 GB of downloaded imagery.
 
 ### Running the application
 
