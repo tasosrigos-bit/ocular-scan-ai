@@ -214,8 +214,23 @@ def load_index(index_dir: Path | None = None) -> Index:
     -------
     Index
         The loaded index, ready for dense, sparse or hybrid retrieval.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the index has not been built or downloaded, with both ways to obtain it.
     """
     index_dir = index_dir or INDEX_DIR
+    if not (index_dir / "manifest.json").exists():
+        raise FileNotFoundError(
+            f"no index at {index_dir}.\n"
+            "Indexes are build artifacts and are not tracked by git. Download the "
+            "prebuilt ones from the repository release with\n\n"
+            "    gh release download v0.1.0 --pattern rag-artifacts.tar.gz\n"
+            "    tar xzf rag-artifacts.tar.gz\n\n"
+            "run from the repository root, or rebuild them yourself with "
+            "scripts/build_all_indexes.py."
+        )
     manifest = json.loads((index_dir / "manifest.json").read_text())
     embeddings = np.load(index_dir / "embeddings.npy")
     with (index_dir / "chunks.jsonl").open(encoding="utf-8") as fh:
