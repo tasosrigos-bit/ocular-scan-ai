@@ -7,7 +7,7 @@ convolutional classifier) and ``search_corpus`` (the retrieval system selected i
 experiments). The model calls them in a single round and then answers from the
 results. The retrieval is basic, one search under the selected configuration rather
 than an agentic loop that reformulates and searches again, following the Phase B
-finding in notebook 08 that the agent brings no gain at higher cost.
+finding in notebook 09 that the agent brings no gain at higher cost.
 
 Run with::
 
@@ -21,6 +21,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from ocular.classifier import explain
 from ocular.rag import index, llm, rerank, tools
 
 # The retrieval configuration chosen in Phase A, and the basic (non-agentic)
@@ -88,7 +89,7 @@ def _reply(messages: list[dict]) -> str:
     retrieval under the selected configuration (fixed chunks, the biomedical
     embedder, hybrid retrieval, the gte reranker), so the assistant is basic rather
     than agentic: it does not loop to reformulate the query and search again, which
-    the Phase B evaluation in notebook 08 found brings no gain at higher cost. The
+    the Phase B evaluation in notebook 09 found brings no gain at higher cost. The
     tool results are then fed back once and the model writes the final cited answer.
     """
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -156,8 +157,15 @@ with scan_col:
         st.image(upload, use_container_width=True)
         with st.spinner("Classifying the scan..."):
             label, confidence, probs = tools.predict_scan(path)
+            net, device = tools.load_classifier()
+            scan, cam = explain.explain_scan(net, path, tools.PREPROCESS, device=device)
         st.metric("Prediction", label, f"{confidence:.0%} confidence")
         st.bar_chart(probs, horizontal=True)
+        st.image(explain.overlay(scan, cam), use_container_width=True)
+        st.caption(
+            "Where the model looked, over the preprocessed scan. It marks the region the "
+            "decision rested on at coarse resolution, and is not a lesion outline."
+        )
         st.caption("Decision-support output, not a diagnosis. Confirm by clinical examination.")
     else:
         st.session_state.pop("scan_path", None)
