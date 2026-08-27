@@ -5,7 +5,7 @@ architecture is built with a fresh classification head of the project's four
 classes by :func:`build_model`, which accepts a short architecture name.
 
 The pretrained backbones are drawn from ``torchvision`` and cover the families
-compared in the modelling notebook. :class:`CustomCNN` is a small network trained
+compared in notebook 03. :class:`CustomCNN` is a small network trained
 from scratch, and serves as the no-pretraining anchor of the pretraining
 comparison rather than as a competitor for best accuracy.
 """

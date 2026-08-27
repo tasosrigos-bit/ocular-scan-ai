@@ -4,7 +4,7 @@ The pipeline removes the parts of a scan that belong to the acquiring device and
 retains the retina, so that a model trained on one device transfers to devices it
 has not seen. Each step is a configurable knob rather than a fixed choice, and the
 combination that transfers best is selected empirically on the held-out OCTDL set.
-That search is run by ``experiments/run_size.py`` and the reasoning behind each
+That search is run by ``experiments/run_preprocessing.py`` and the reasoning behind each
 knob is illustrated in ``notebooks/02_classifier_preprocessing.ipynb``.
 
 Two regimes are supported through the ``crop`` flag of :func:`preprocess`.
