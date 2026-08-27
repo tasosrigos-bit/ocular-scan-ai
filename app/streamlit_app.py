@@ -111,8 +111,37 @@ def _reply(messages: list[dict]) -> str:
     return _text(reply.content)
 
 
-st.set_page_config(page_title="Ocular Scan AI", page_icon="👁️", layout="wide")
-st.title("👁️ Ocular Scan AI")
+st.set_page_config(page_title="Ocular Scan AI", layout="wide")
+
+st.markdown(
+    """
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      html, body, [class*="css"], .stMarkdown, .stChatMessage { font-family: 'Inter', system-ui, sans-serif; }
+      /* Hide the default Streamlit chrome for a cleaner, app-like surface. */
+      #MainMenu, header[data-testid="stHeader"], footer, [data-testid="stToolbar"] { display: none !important; }
+      .block-container { padding-top: 2rem; padding-bottom: 0.75rem; max-width: 1500px; }
+      h1 { font-weight: 700; letter-spacing: -0.02em; }
+      h3 { font-weight: 600; letter-spacing: -0.01em; }
+      /* The chat box fills the right side down to the input and scrolls inside.
+         The container carries no built-in height, so this rule owns the sizing. */
+      .stVerticalBlock.st-key-chatbox {
+          flex: 0 0 auto;
+          height: calc(100vh - 420px);
+          min-height: 260px;
+          overflow-y: auto;
+          border: 1px solid rgba(255, 255, 255, 0.10);
+          border-radius: 14px;
+          padding: 0.5rem 1rem;
+      }
+      /* Round and soften the scan preview and info blocks. */
+      [data-testid="stImage"] img { border-radius: 12px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("Ocular Scan AI")
 st.caption("OCT B-scan classification with a literature-grounded assistant")
 
 scan_col, chat_col = st.columns([1, 1.4], gap="large")
@@ -129,19 +158,30 @@ with scan_col:
             label, confidence, probs = tools.predict_scan(path)
         st.metric("Prediction", label, f"{confidence:.0%} confidence")
         st.bar_chart(probs, horizontal=True)
-    elif "scan_path" in st.session_state:
-        st.session_state.pop("scan_path")
+        st.caption("Decision-support output, not a diagnosis. Confirm by clinical examination.")
+    else:
+        st.session_state.pop("scan_path", None)
+        st.info("Upload an OCT B-scan to classify it. The assistant can then discuss the finding.")
 
 with chat_col:
     st.subheader("Assistant")
     st.session_state.setdefault("messages", [])
+
+    # A fixed-height, scrollable box holds the conversation, so the page itself
+    # does not grow as messages pile up and the input below stays in place.
+    history = st.container(key="chatbox")
+    if not st.session_state["messages"]:
+        history.caption(
+            "Ask about the uploaded scan or any ophthalmology question. Clinical answers "
+            "are grounded in the literature and cited."
+        )
     for message in st.session_state["messages"]:
-        st.chat_message(message["role"]).write(message["content"])
+        history.chat_message(message["role"]).write(message["content"])
 
     if prompt := st.chat_input("Ask about the scan or about ophthalmology..."):
         st.session_state["messages"].append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
-        with st.chat_message("assistant"), st.spinner("Thinking..."):
+        history.chat_message("user").write(prompt)
+        with history.chat_message("assistant"), st.spinner("Thinking..."):
             answer = _reply(st.session_state["messages"])
             st.write(answer)
         st.session_state["messages"].append({"role": "assistant", "content": answer})
