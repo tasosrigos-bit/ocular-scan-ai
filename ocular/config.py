@@ -19,6 +19,10 @@ TESTING_DIR : pathlib.Path
 CLASSES : list of str
     The four diagnostic classes in fixed order. This order defines the integer
     label encoding and the column order of every model output.
+CKPT : pathlib.Path
+    The delivered checkpoint. It is too large for git and is therefore not in the
+    repository, so it is downloaded from the release and placed here, as the
+    top-level README describes.
 SEED : int
     Global random seed for reproducible data splits and training.
 """
@@ -41,6 +45,35 @@ TESTING_DIR = DATA_DIR / "raw" / "OCT2017" / "test"
 # Diagnostic classes in fixed order. This defines the integer label encoding
 # and the column order of every model head.
 CLASSES = ["CNV", "DME", "DRUSEN", "NORMAL"]
+
+# The delivered checkpoint. At about 110 MB it exceeds what git accepts, so it is
+# attached to the repository release instead of being tracked, and every script,
+# notebook and the application resolve it from here rather than repeating the path.
+CKPT = ROOT / "experiments" / "convnext_final_e1.pt"
+
+
+def require_ckpt() -> Path:
+    """Return the delivered checkpoint, or explain how to obtain it.
+
+    Returns
+    -------
+    pathlib.Path
+        The path to :data:`CKPT`.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the checkpoint has not been downloaded, with the command that fetches it.
+    """
+    if CKPT.exists():
+        return CKPT
+    raise FileNotFoundError(
+        f"the delivered checkpoint is missing from {CKPT}.\n"
+        "It is not tracked by git because it exceeds the file size GitHub accepts. "
+        "Download it from the repository release with\n\n"
+        "    gh release download v0.1.0 --pattern convnext_final_e1.pt --dir experiments\n\n"
+        "or save it from the Releases page into the experiments directory."
+    )
 
 # Global random seed for reproducible data splits and training.
 SEED = 0
