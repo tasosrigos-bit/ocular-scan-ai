@@ -34,8 +34,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ocular import config, data, eval, model, train
-from ocular.data import PreConfig
+from ocular import config
+from ocular.classifier import data, eval, model, train
+from ocular.classifier.data import PreConfig
 
 #: The eleven configurations of the preprocessing search. The fill knob is implied by the
 #: regime, black in the cropped regime and background fill in the full-frame one.

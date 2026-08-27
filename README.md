@@ -34,13 +34,14 @@ outcome. No notebook trains a model.
 
 ```
 ocular/         the package
-  config.py       paths, class order, seed
-  preprocess.py   B-scan to a fixed frame, one configurable knob per step
-  data.py         caches, loaders, OCTDL and clinic mapping, class weights
-  model.py        build_model over several backbones, plus a small custom network
-  train.py        a fixed-length training loop, no selection on validation
-  eval.py         accuracy, macro-F1, per-class recall
-  explain.py      Grad-CAM over the classifier
+  config.py       paths, class order, seed (shared by both subsystems)
+  classifier/     the image classifier
+    preprocess.py   B-scan to a fixed frame, one configurable knob per step
+    data.py         caches, loaders, OCTDL and clinic mapping, class weights
+    model.py        build_model over several backbones, plus a small custom network
+    train.py        a fixed-length training loop, no selection on validation
+    eval.py         accuracy, macro-F1, per-class recall
+    explain.py      Grad-CAM over the classifier
   rag/            the retrieval assistant: corpus, chunking, index, retrieval,
                   rerank, generation, the agent tools and the two pipelines
 experiments/    the compute scripts and the result files they write

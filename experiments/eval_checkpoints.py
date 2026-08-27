@@ -31,8 +31,9 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from ocular import config, data, eval, model, train
-from ocular.data import OCTDataset, PreConfig
+from ocular import config
+from ocular.classifier import data, eval, model, train
+from ocular.classifier.data import OCTDataset, PreConfig
 
 SETS = ("val", "octdl", "clinic")
 

@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from ocular import config
-from ocular.train import get_device
+from ocular.classifier.train import get_device
 
 
 @torch.no_grad()

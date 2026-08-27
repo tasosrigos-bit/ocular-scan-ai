@@ -31,8 +31,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ocular import config, data, eval, model, train
-from ocular.data import PreConfig
+from ocular import config
+from ocular.classifier import data, eval, model, train
+from ocular.classifier.data import PreConfig
 
 #: The two frames carried from the preprocessing search, both cropped and curvature corrected.
 SIZES = [
