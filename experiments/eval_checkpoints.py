@@ -16,7 +16,7 @@ used for selection.
 
 Usage
 -----
-    python experiments/eval_checkpoints.py --ckpt /content/drive/MyDrive/convnext_final.pt \
+    python experiments/eval_checkpoints.py --ckpt experiments/convnext_final_e1.pt \
         --model convnext_tiny --width 384 --height 256
 """
 from __future__ import annotations

@@ -15,7 +15,7 @@ record. The model is scored on OCTDL and the clinic at the end.
 
 Usage
 -----
-    python experiments/train_final.py --ckpt /content/drive/MyDrive/convnext_final.pt \
+    python experiments/train_final.py --ckpt experiments/convnext_final.pt \
         --max-minutes 210
 """
 from __future__ import annotations
