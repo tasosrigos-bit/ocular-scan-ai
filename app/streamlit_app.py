@@ -81,7 +81,27 @@ def _text(content) -> str:
     return "".join(b.get("text", "") for b in content if isinstance(b, dict))
 
 
-def _reply(messages: list[dict]) -> str:
+def _sources_of(hits) -> list[dict]:
+    """Reduce the retrieved hits to what the sources panel renders.
+
+    The panel is redrawn on every rerun, so the passages are kept with the message
+    rather than re-retrieved. Storing plain dictionaries rather than the ``Hit``
+    objects keeps the session state free of references into the loaded index.
+    """
+    return [
+        {
+            "title": h.chunk.title,
+            "section": h.chunk.section,
+            "doi": h.chunk.doi,
+            "license": h.chunk.license,
+            "score": h.score,
+            "text": h.chunk.text,
+        }
+        for h in hits
+    ]
+
+
+def _reply(messages: list[dict]) -> tuple[str, list[dict]]:
     """Answer with basic RAG: one round of tool calls, then a grounded answer.
 
     The model is given the two tools and may call ``classify_scan`` and
@@ -91,10 +111,17 @@ def _reply(messages: list[dict]) -> str:
     than agentic: it does not loop to reformulate the query and search again, which
     the Phase B evaluation in notebook 09 found brings no gain at higher cost. The
     tool results are then fed back once and the model writes the final cited answer.
+
+    Returns the answer together with the passages the search returned, in the order
+    they were numbered for the model, so the application can show the evidence the
+    citations point at. The list is empty when the model searched nothing.
     """
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-    search = tools.make_search_corpus(_index(), rerank_model=rerank.DEFAULT_RERANKER)
+    hits: list = []
+    search = tools.make_search_corpus(
+        _index(), rerank_model=rerank.DEFAULT_RERANKER, collector=hits
+    )
     classify = tools.make_classify_scan(lambda: st.session_state.get("scan_path"))
     toolmap = {"search_corpus": search, "classify_scan": classify}
 
@@ -109,7 +136,35 @@ def _reply(messages: list[dict]) -> str:
             result = toolmap[call["name"]].invoke(call["args"])
             convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
         reply = _chat().invoke(convo)  # unbound, so it must produce the final answer as text
-    return _text(reply.content)
+    return _text(reply.content), _sources_of(hits)
+
+
+def _sources(box, sources: list[dict] | None) -> None:
+    """Show the passages an answer was grounded in, numbered as the model cited them.
+
+    Each passage gets its own collapsed panel, so the clinician can open the one a
+    particular citation points at without unfolding the rest. The numbering follows
+    the order the search tool returned, which is the order it numbered the passages
+    for the model, so ``[1]`` in the answer is the first panel here. An answer
+    written without a search says so, since the grounding the system prompt asks for
+    only holds when the corpus was actually consulted.
+    """
+    if not sources:
+        box.caption("No literature search on this turn.")
+        return
+    box.caption(f"Sources · {len(sources)} passages")
+    for i, s in enumerate(sources, 1):
+        label = f"[{i}] {s['title']}"
+        if s["section"]:
+            label += f" - {s['section']}"
+        with box.expander(label):
+            meta = [f"relevance {s['score']:.3f}"]
+            if s["doi"]:
+                meta.insert(0, f"doi:{s['doi']}")
+            if s["license"]:
+                meta.append(s["license"])
+            st.caption(" · ".join(meta))
+            st.markdown(s["text"])
 
 
 st.set_page_config(page_title="Ocular Scan AI", layout="wide")
@@ -184,12 +239,18 @@ with chat_col:
             "are grounded in the literature and cited."
         )
     for message in st.session_state["messages"]:
-        history.chat_message(message["role"]).write(message["content"])
+        box = history.chat_message(message["role"])
+        box.write(message["content"])
+        if message["role"] == "assistant":
+            _sources(box, message.get("sources"))
 
     if prompt := st.chat_input("Ask about the scan or about ophthalmology..."):
         st.session_state["messages"].append({"role": "user", "content": prompt})
         history.chat_message("user").write(prompt)
         with history.chat_message("assistant"), st.spinner("Thinking..."):
-            answer = _reply(st.session_state["messages"])
+            answer, sources = _reply(st.session_state["messages"])
             st.write(answer)
-        st.session_state["messages"].append({"role": "assistant", "content": answer})
+            _sources(st.container(), sources)
+        st.session_state["messages"].append(
+            {"role": "assistant", "content": answer, "sources": sources}
+        )
