@@ -1,0 +1,16 @@
+# Deterministic preprocessing applied to every split (incl. external OPTOPOL set).
+# Augmentation below is TRAIN-ONLY and is skipped for val/test/external.
+image_size: 224
+roi_crop: true              # crop to retinal band before resize (transforms.retina_roi)
+to_rgb: true                # replicate grayscale to 3 channels for pretrained backbones
+
+# ImageNet stats — backbones are ImageNet-pretrained. Reused verbatim for the
+# OPTOPOL external set so the measured gap is genuine domain shift, not renorm.
+normalize_mean: [0.485, 0.456, 0.406]
+normalize_std: [0.229, 0.224, 0.225]
+
+train_augmentation:
+  horizontal_flip: 0.5
+  rotate_deg: 5
+  brightness_contrast: 0.1
+  gaussian_noise_std: 0.01

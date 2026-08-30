@@ -1,0 +1,46 @@
+batch_size: 32
+num_workers: 2             # Colab has ~2 vCPUs; >2 warns and slows worker startup
+persistent_workers: false  # keep workers between epochs? false => clean teardown
+prefetch_factor: 2
+loader_timeout: 120        # seconds a batch may block a worker before erroring (0 = disabled)
+max_epochs: 30
+freeze_epochs: 3            # backbone frozen for this many epochs (warmup the head)
+
+optimizer:
+  name: adamw
+  lr: 3.0e-4               # base LR for backbone; head uses lr * model.head_lr_mult
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: cosine
+  warmup_epochs: 1
+  min_lr: 1.0e-6
+
+loss:
+  name: cross_entropy      # cross_entropy | focal
+  label_smoothing: 0.05
+  class_weighted: false    # OCT-C8 is balanced; set true to weight from manifest
+
+early_stopping:
+  monitor: val/macro_f1
+  mode: max
+  patience: 7
+
+checkpoint:
+  monitor: val/macro_f1
+  mode: max
+  save_top_k: 2
+  save_last: true          # writes checkpoints/last.ckpt every epoch
+
+# Crash/disconnect recovery. On Colab, outputs go to Drive (see paths config),
+# so a re-run of the same command picks up checkpoints/last.ckpt automatically.
+auto_resume: true
+resume_from: null          # set to a checkpoint path to force-resume from it
+
+precision: 16-mixed
+accelerator: auto
+devices: auto
+deterministic: true
+
+# post-training: fit temperature scaling on the val split before eval / CDS
+calibrate_after_fit: true

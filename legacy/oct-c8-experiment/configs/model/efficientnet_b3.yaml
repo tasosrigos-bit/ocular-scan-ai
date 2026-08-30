@@ -1,0 +1,10 @@
+# Swappable alternative for later comparison. NOT trained yet.
+#   python train.py model=efficientnet_b3
+name: efficientnet_b3
+timm_name: efficientnet_b3
+pretrained: true
+in_chans: 3
+num_classes: 8
+drop_rate: 0.3
+freeze_backbone_initially: true
+head_lr_mult: 10.0

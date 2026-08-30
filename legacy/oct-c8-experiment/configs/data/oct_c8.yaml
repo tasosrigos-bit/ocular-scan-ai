@@ -1,0 +1,80 @@
+# Retinal OCT-C8 — primary dataset (training / val / internal test)
+# Source: https://www.kaggle.com/datasets/obulisainaren/retinal-oct-c8
+# 8 classes, balanced 3,000 images/class, pre-split by the dataset authors.
+#   train: 18,400  |  val: 2,800  |  test: 2,800
+# Do NOT re-split. Use the authors' split as-is so results stay comparable
+# with published OCT-C8 baselines.
+
+name: oct_c8
+source: kaggle
+kaggle_slug: obulisainaren/retinal-oct-c8
+use: [train, val, test]          # this dataset supplies all three internal splits
+
+# ---------------------------------------------------------------------------
+# Layout on disk (ImageFolder-style, one dir per class per split):
+#   <root>/{train,val,test}/{AMD,CNV,CSR,DME,DR,DRUSEN,MH,NORMAL}/*.png
+#
+# `root` comes from configs/paths/default.yaml (paths.oct_c8_raw_root) so the
+# out-of-repo dataset location is configured in exactly one place. Override with
+#   python train.py paths.oct_c8_raw_root=/path/to/RetinalOCT_Dataset
+#
+# class_dir_map format:   <canonical label key> : <exact folder name on disk>
+#   - LEFT  must match data/metadata/label_map.json (frozen class ids); do not change.
+#   - RIGHT is the literal directory name under train/ val/ test/ as downloaded.
+# The manifest builder reads images from  <split>/<RIGHT>/  and labels them <LEFT>.
+# ---------------------------------------------------------------------------
+root: ${paths.oct_c8_raw_root}
+split_dirs:
+  train: train
+  val: val
+  test: test
+
+class_dir_map:
+  AMD: AMD
+  CNV: CNV
+  CSR: CSR
+  DME: DME
+  DR: DR
+  Drusen: DRUSEN          # folder is uppercase
+  Macular Hole: MH        # folder is the abbreviation, not spelled out
+  Normal: NORMAL
+
+num_classes: 8
+label_map: ${paths.data_dir}/metadata/label_map.json
+
+# ---------------------------------------------------------------------------
+# Manifest generation (src/oct_cds/data/manifest.py)
+# ---------------------------------------------------------------------------
+manifest:
+  train: ${paths.data_dir}/processed/train.csv
+  val:   ${paths.data_dir}/processed/val.csv
+  test:  ${paths.data_dir}/processed/test.csv
+  # built from clinic_optopol.yaml; listed here so `eval.py eval.split=external_test`
+  # can load it against the OCT-C8-trained model.
+  external_test: ${paths.data_dir}/processed/external_clinic_optopol.csv
+  # OCT-C8 has no patient/eye IDs. Treat each image as its own group; there is
+  # no cross-split leakage because the authors' split is fixed and disjoint.
+  patient_id_strategy: per_image      # patient_id := image stem
+  stratify_by: label
+
+# ---------------------------------------------------------------------------
+# Class balance — dataset is balanced, so weights are ~1.0. Kept explicit so
+# the training loss config path doesn't branch on dataset.
+# ---------------------------------------------------------------------------
+class_balance: uniform
+class_weights: null                   # null -> computed from manifest (all ~1.0)
+
+# ---------------------------------------------------------------------------
+# Image characteristics (for preprocessing defaults)
+# ---------------------------------------------------------------------------
+image:
+  channels: 1                         # OCT B-scans are grayscale; expand to 3 for pretrained backbones
+  expand_to_rgb: true
+  approx_native_size: [496, 512]      # varies by vendor; ROI crop + resize handles it
+  loader: pil
+
+expected_counts:
+  train: {per_class: 2300, total: 18400}
+  val:   {per_class: 350,  total: 2800}
+  test:  {per_class: 350,  total: 2800}
+# NOTE: 3,000/class total across the 3 splits -> 2300/350/350 per class.

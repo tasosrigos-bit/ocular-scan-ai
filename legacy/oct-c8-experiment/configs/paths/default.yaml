@@ -1,0 +1,23 @@
+# Repo-relative paths. Hydra changes CWD, so we anchor on ${hydra:runtime.cwd}.
+root_dir: ${hydra:runtime.cwd}
+data_dir: ${paths.root_dir}/data
+config_dir: ${paths.root_dir}/configs
+model_dir: ${paths.root_dir}/models
+report_dir: ${paths.root_dir}/reports
+
+# ---------------------------------------------------------------------------
+# Roots that live OUTSIDE the repo. Point them at wherever things actually sit.
+# Override per-run on the CLI, e.g. python train.py paths.oct_c8_raw_root=/x
+#
+# Colab + Google Drive (current setup):
+# ---------------------------------------------------------------------------
+oct_c8_raw_root: /content/drive/MyDrive/oct_data/RetinalOCT_Dataset/RetinalOCT_Dataset
+clinic_optopol_raw_root: /content/drive/MyDrive/bscans
+# Local defaults would be: ${paths.data_dir}/raw/oct_c8  and
+#                          ${paths.data_dir}/external/clinic_optopol
+
+# Training outputs (checkpoints, calibrators, Hydra run logs). On Colab this
+# MUST be on Drive — /content is wiped when the runtime disconnects.
+outputs_root: /content/drive/MyDrive/oct_cds_outputs
+# Local default would be: ${paths.root_dir}/outputs
+output_dir: ${paths.outputs_root}

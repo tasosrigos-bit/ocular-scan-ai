@@ -1,0 +1,10 @@
+# Swappable alternative for later comparison. NOT trained yet.
+#   python train.py model=resnet50
+name: resnet50
+timm_name: resnet50
+pretrained: true
+in_chans: 3
+num_classes: 8
+drop_rate: 0.2
+freeze_backbone_initially: true
+head_lr_mult: 10.0
