@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------------------
+# Patient data — NEVER commit. These are real (de-identified) clinical scans.
+# Everything under data/ is ignored EXCEPT the two tracked metadata files.
+# ---------------------------------------------------------------------------
+data/*
+!data/metadata/
+data/metadata/*
+!data/metadata/label_map.json
+!data/metadata/data_dictionary.md
+
+# Model artifacts (leading slash = repo-root ONLY, so it never matches the
+# src/oct_cds/models/ Python package)
+/models/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# Experiment tracking / outputs
+/outputs/
+/multirun/
+/mlruns/
+/wandb/
+/lightning_logs/
+/reports/figures/*
+/reports/metrics/*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.DS_Store

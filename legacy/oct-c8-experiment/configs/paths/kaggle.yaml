@@ -1,0 +1,25 @@
+# Kaggle Notebooks environment.
+#   training:   python train.py paths=kaggle
+#   manifests:  python -m oct_cds.cli data build --paths kaggle
+#
+# /kaggle/input is READ-ONLY; manifests + outputs go under /kaggle/working
+# (persisted with the notebook version).
+
+# Repo-relative paths (same as default).
+root_dir: ${hydra:runtime.cwd}
+data_dir: ${paths.root_dir}/data
+config_dir: ${paths.root_dir}/configs
+model_dir: ${paths.root_dir}/models
+report_dir: ${paths.root_dir}/reports
+
+# ---------------------------------------------------------------------------
+# Read-only Kaggle dataset mounts.
+# ---------------------------------------------------------------------------
+oct_c8_raw_root: /kaggle/input/datasets/obulisainaren/retinal-oct-c8/RetinalOCT_Dataset/RetinalOCT_Dataset
+clinic_optopol_raw_root: /kaggle/input/datasets/pradamehavannan/bscans/bscans
+
+# ---------------------------------------------------------------------------
+# Writable working dir — checkpoints, calibrators, Hydra run logs.
+# ---------------------------------------------------------------------------
+outputs_root: /kaggle/working/oct_cds_outputs
+output_dir: ${paths.outputs_root}

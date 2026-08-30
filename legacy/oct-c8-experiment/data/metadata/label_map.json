@@ -1,0 +1,106 @@
+{
+  "dataset": "retinal-oct-c8",
+  "num_classes": 8,
+  "ordering": "alphabetical_by_canonical_name (fixed; index == training class id)",
+  "classes": [
+    {
+      "id": 0,
+      "key": "AMD",
+      "name": "Age-related Macular Degeneration",
+      "oct_c8_dir": "AMD",
+      "group": "referable",
+      "description": "Dry/atrophic or non-neovascular AMD features (drusenoid RPE changes, GA) without active CNV."
+    },
+    {
+      "id": 1,
+      "key": "CNV",
+      "name": "Choroidal Neovascularization",
+      "oct_c8_dir": "CNV",
+      "group": "referable_urgent",
+      "description": "Neovascular membrane with subretinal/intraretinal fluid or pigment epithelial detachment; wet AMD spectrum."
+    },
+    {
+      "id": 2,
+      "key": "CSR",
+      "name": "Central Serous Retinopathy",
+      "oct_c8_dir": "CSR",
+      "group": "referable",
+      "description": "Serous neurosensory retinal detachment, often with RPE bump; central serous chorioretinopathy."
+    },
+    {
+      "id": 3,
+      "key": "DME",
+      "name": "Diabetic Macular Edema",
+      "oct_c8_dir": "DME",
+      "group": "referable_urgent",
+      "description": "Retinal thickening with intraretinal cystoid spaces and/or hard exudates in a diabetic context."
+    },
+    {
+      "id": 4,
+      "key": "DR",
+      "name": "Diabetic Retinopathy",
+      "oct_c8_dir": "DR",
+      "group": "referable",
+      "description": "OCT features of diabetic retinopathy without frank center-involving edema (microaneurysms, mild disorganization)."
+    },
+    {
+      "id": 5,
+      "key": "Drusen",
+      "name": "Drusen",
+      "oct_c8_dir": "DRUSEN",
+      "group": "monitor",
+      "description": "Discrete sub-RPE deposits; early/intermediate AMD risk marker without CNV or GA."
+    },
+    {
+      "id": 6,
+      "key": "Macular Hole",
+      "name": "Macular Hole",
+      "oct_c8_dir": "MH",
+      "group": "referable_urgent",
+      "description": "Full- or partial-thickness foveal defect, often with cuff of subretinal fluid or vitreomacular traction."
+    },
+    {
+      "id": 7,
+      "key": "Normal",
+      "name": "Normal",
+      "oct_c8_dir": "NORMAL",
+      "group": "normal",
+      "description": "No pathological OCT findings; preserved foveal contour and retinal layer architecture."
+    }
+  ],
+  "key_to_id": {
+    "AMD": 0,
+    "CNV": 1,
+    "CSR": 2,
+    "DME": 3,
+    "DR": 4,
+    "Drusen": 5,
+    "Macular Hole": 6,
+    "Normal": 7
+  },
+  "id_to_key": {
+    "0": "AMD",
+    "1": "CNV",
+    "2": "CSR",
+    "3": "DME",
+    "4": "DR",
+    "5": "Drusen",
+    "6": "Macular Hole",
+    "7": "Normal"
+  },
+  "dir_aliases": {
+    "AMD": "AMD",
+    "CNV": "CNV",
+    "CSR": "CSR",
+    "DME": "DME",
+    "DR": "DR",
+    "DRUSEN": "Drusen",
+    "MH": "Macular Hole",
+    "NORMAL": "Normal"
+  },
+  "notes": [
+    "`group` is consumed by the CDS rule layer (configs/cds/rules_v1.yaml) for urgency mapping, not by the classifier.",
+    "`oct_c8_dir` / `dir_aliases` map on-disk folder names to canonical keys for both OCT-C8 and the OPTOPOL external set.",
+    "Class ids are frozen. If classes change, bump the label_map `dataset` tag and retrain — do not silently reorder."
+  ]
+}

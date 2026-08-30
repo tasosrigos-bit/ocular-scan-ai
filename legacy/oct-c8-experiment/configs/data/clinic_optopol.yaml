@@ -1,0 +1,54 @@
+# OPTOPOL REVO clinic B-scans — EXTERNAL VALIDATION ONLY
+# 37 de-identified OCT B-scans acquired on an OPTOPOL REVO device.
+# Different vendor / optics / noise profile than OCT-C8 -> used purely to
+# measure out-of-distribution generalization. NEVER added to train or val,
+# never used for model selection or threshold tuning.
+
+name: clinic_optopol
+source: local
+use: [external_test]                  # the ONLY allowed use
+train_forbidden: true                 # manifest builder + trainer assert this
+
+root: ${paths.clinic_optopol_raw_root}   # see configs/paths/default.yaml
+# Labels come from the FILENAME, not the folder (see oct_cds.data.optopol):
+#   {LABEL}[_{patient_num}]__{eye}.png    eye in {L, R, p0}
+# Files may sit directly under `root` or in one level of class subdirs; when a
+# subdir is present its name is cross-checked against the parsed filename label.
+# Missing classes are fine — metrics are computed over the classes present.
+split_dirs:
+  external_test: .
+
+num_classes: 8
+label_map: ${paths.data_dir}/metadata/label_map.json
+
+manifest:
+  external_test: ${paths.data_dir}/processed/external_clinic_optopol.csv
+  patient_id_strategy: per_image
+  stratify_by: label
+
+# Labels are clinician-assigned. Record who graded and the grading date in
+# the manifest `notes` column for the audit trail.
+grading:
+  source: clinic_ophthalmologist
+  reference_standard: clinical_diagnosis   # not OCT-C8 label convention
+  n_images: 37
+
+image:
+  channels: 1
+  expand_to_rgb: true
+  vendor: optopol_revo
+  approx_native_size: [740, 800]      # OPTOPOL REVO export; confirm on ingest
+  loader: pil
+
+# Preprocessing: apply the SAME deterministic pipeline as oct_c8 (ROI crop,
+# resize, normalize). Do NOT fit any statistics on this set — reuse oct_c8
+# normalization constants so the domain shift is what you're actually measuring.
+preprocess_override: null
+
+deidentification:
+  status: confirmed
+  method: vendor_export_without_phi
+  reviewed_by: data_owner
+  notes: >
+    Verify no burned-in patient identifiers in image corners before ingest
+    (src/oct_cds/data/quality_control.py has a PHI-corner check).

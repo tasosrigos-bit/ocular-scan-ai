@@ -1,0 +1,45 @@
+# Clinical decision support rule layer — v1.
+# DETERMINISTIC. The classifier produces calibrated probabilities; this file
+# maps them to a triage recommendation. Any change here is a versioned event:
+# bump `version` and note it in reports/clinical_validation.md.
+#
+# This is decision-support for a clinician, not an autonomous diagnosis.
+version: 1
+
+# Minimum calibrated top-1 probability to assert a class at all.
+min_confidence: 0.60
+# Minimum margin between top-1 and top-2 to avoid "ambiguous" abstention.
+min_margin: 0.15
+
+# Out-of-distribution / not-an-OCT gate (cds/ood_detection.py). Above this
+# score the input is rejected before any recommendation is produced.
+ood_reject_score: 0.80
+
+# Per-class urgency. `group` comes from data/metadata/label_map.json.
+# urgency tiers: emergent < 24h | urgent <1wk | soon <1mo | routine | none
+urgency_by_group:
+  referable_urgent: urgent
+  referable: soon
+  monitor: routine
+  normal: none
+
+# Class-specific overrides (win over group mapping).
+urgency_overrides:
+  "Macular Hole": urgent      # surgical window matters
+  CNV: urgent                 # anti-VEGF assessment
+  DME: urgent
+
+# What to do when the model abstains (low confidence, ambiguous, or OOD).
+abstain_action:
+  urgency: soon
+  recommendation: >
+    Model confidence insufficient for an automated impression. Recommend
+    review by a retinal specialist.
+
+# Text scaffolding for the human-readable report (cds/report.py fills the slots).
+report:
+  disclaimer: >
+    AI-generated decision support for use by a qualified clinician. Not a
+    diagnostic device. Does not replace clinical judgment or dilated exam.
+  include_gradcam: true
+  cite_guidelines: true       # attach guideline references from cds/guideline_refs

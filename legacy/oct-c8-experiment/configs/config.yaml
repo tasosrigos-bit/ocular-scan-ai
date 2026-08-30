@@ -1,0 +1,51 @@
+# Hydra root config.
+#   python train.py                             # defaults below
+#   python train.py model=densenet121 data=oct_c8
+#   python train.py model=resnet50 training.max_epochs=40
+defaults:
+  - paths: default
+  - data: oct_c8
+  - model: densenet121
+  - preprocess: default
+  - training: default
+  - cds: rules_v1
+  - _self_
+
+seed: 1337
+task_name: oct_c8_${model.name}
+output_dir: ${paths.output_dir}/${task_name}
+
+# used by eval.py
+eval:
+  ckpt_path: null          # null => auto-pick best-scoring ckpt under output_dir/checkpoints
+  split: test              # test | external_test | val
+  calibration: fit_val     # fit_val (refit temp on val) | load (temperature.json) | none
+  bootstrap: true
+
+# used by explain.py (Grad-CAM)
+explain:
+  ckpt_path: null          # null => same auto-pick as eval
+  split: test              # test | external_test | val
+  classes: null            # null => all; or a list e.g. [Drusen] to filter by TRUE class
+  only_errors: false       # true => only images the model got wrong
+  target: pred             # pred (why it predicted that) | true | both
+  max_images: 200          # cap the number of overlays written
+  alpha: 0.45              # heatmap opacity in the blend
+  batch_size: 16
+
+# used by cds.py — run calibrated predictions through the CDS rule layer
+cds_run:
+  ckpt_path: null          # null => same auto-pick as eval
+  split: test              # test | external_test
+  calibration: fit_val     # fit_val | load | none  (CDS expects calibrated probs)
+  ood: msp                 # msp (1 - max prob) | energy | none  -> ModelResult.ood_score
+  write_reports_for: errors # none | errors | all  (full build_report narrative per case)
+  audit: true              # append every recommendation to <output_dir>/cds/audit_<split>.jsonl
+
+# hydra run/output layout
+hydra:
+  run:
+    dir: ${paths.output_dir}/${task_name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ${paths.output_dir}/multirun/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}
