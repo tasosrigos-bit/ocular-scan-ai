@@ -189,8 +189,19 @@ asserts a different class, or softens the fixed triage.
 On the 37-scan clinic set: 16 cases skipped as predicted-normal and 6 as
 model-abstained; of the 15 remaining, **15/15 (100%) produced a verified,
 fully-cited narrative** (12 first-shot, 3 after one citation retry), with zero
-fallbacks and zero unresolved citations. Full write-up:
-**[PART2.md](PART2.md)**.
+fallbacks and zero unresolved citations.
+
+![Clinic Case Browser — the Drusen case: OCT scan, Part 1's frozen decision, and the grounded narrative with highlighted citation markers and a VERIFIED badge](docs/figures/case_browser.png)
+
+*[`app/case_browser.py`](app/case_browser.py) — a chat-style Streamlit viewer
+over the 37 pre-computed narratives (no model, no GPU). Each case shows the OCT
+scan, Part 1's fixed decision, and the routed narrative (grounded / skipped /
+fell back) with a Verified indicator from `narrator_meta`. Run it locally with
+`streamlit run app/case_browser.py`, or on Kaggle via a cloudflared tunnel — see
+[app/README.md](app/README.md).*
+
+Full write-up: **[PART2.md](PART2.md)**. Walkthrough notebook:
+[`notebooks/demo_part2.ipynb`](notebooks/demo_part2.ipynb).
 
 ## 9. Limitations
 

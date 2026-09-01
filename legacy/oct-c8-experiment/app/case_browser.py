@@ -13,6 +13,7 @@ import os
 import re
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(
@@ -169,6 +170,35 @@ split = st.sidebar.selectbox(
 )
 cases, summary = load_split(rag_dir, split)
 
+def _outcome_table(oc: dict) -> list[dict]:
+    labels = {
+        "verified": "verified (first attempt)",
+        "verified_with_flags": "verified (after retry)",
+        "fell_back": "fell back to Part 1 template",
+    }
+    skip_normal = skip_abstain = skip_other = 0
+    rows: list[dict] = []
+    for k, v in oc.items():
+        if k.startswith("skipped:"):
+            r = k.split(":", 1)[1].lower()
+            if "normal" in r:
+                skip_normal += v
+            elif "abstain" in r:
+                skip_abstain += v
+            else:
+                skip_other += v
+        elif k in labels:
+            rows.append({"outcome": labels[k], "n": v})
+    for lbl, n in [
+        ("skipped — predicted Normal", skip_normal),
+        ("skipped — model abstained", skip_abstain),
+        ("skipped — other", skip_other),
+    ]:
+        if n:
+            rows.append({"outcome": lbl, "n": n})
+    return rows
+
+
 if summary:
     st.sidebar.subheader("Verification summary")
     oc = summary.get("outcomes", {})
@@ -178,8 +208,10 @@ if summary:
         "Verified narratives",
         f"{verified}/{eligible}" + (f"  ({verified / eligible:.0%})" if eligible else ""),
     )
-    st.sidebar.write({k: v for k, v in sorted(oc.items())})
-    st.sidebar.caption(f"backend: `{summary.get('backend', '?')}`")
+    rows = _outcome_table(oc)
+    if rows:
+        st.sidebar.table(pd.DataFrame(rows).set_index("outcome"))
+    st.sidebar.caption(f"backend: `{summary.get('backend', '?')}`  ·  {sum(oc.values())} cases")
 
 # filters
 classes = sorted({c.get("true_class", "?") for c in cases})
