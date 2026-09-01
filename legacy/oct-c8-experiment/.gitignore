@@ -25,6 +25,10 @@ data/metadata/*
 /reports/figures/*
 /reports/metrics/*
 
+# Part 2 RAG — build artifacts (rebuilt from knowledge_base/*.md)
+/knowledge_base/.index/
+/knowledge_base/.cache/
+
 # Python
 __pycache__/
 *.py[cod]

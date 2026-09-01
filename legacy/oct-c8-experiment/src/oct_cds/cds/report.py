@@ -1,7 +1,9 @@
 """Assemble a human-readable CDS report from a Recommendation.
 
-Structured dict + plain-text rendering. ``llm_narrator`` (optional) may only
-restyle ``narrative`` — never change urgency, class, or refs.
+Structured dict + plain-text rendering. The optional Part 2 ``narrator`` may only
+add a grounded ``narrative_rag`` (and its citations) — ``impression`` and
+``triage`` always come verbatim from the Recommendation, and the plain
+``narrative`` is always Part 1's templated text.
 """
 
 from __future__ import annotations
@@ -12,9 +14,12 @@ from oct_cds.cds.schema import CaseInput, ModelResult, Recommendation
 
 
 def build_report(
-    rec: Recommendation, model_result: ModelResult, case: CaseInput
+    rec: Recommendation,
+    model_result: ModelResult,
+    case: CaseInput,
+    narrator: Any | None = None,
 ) -> dict[str, Any]:
-    return {
+    report = {
         "case": {
             "image_path": case.image_path,
             "eye": case.eye,
@@ -44,6 +49,34 @@ def build_report(
         "disclaimer": rec.disclaimer,
         "narrative": render_text(rec, case),
     }
+
+    if narrator is not None:
+        report["narrator_meta"] = _attach_rag_narrative(report, narrator, rec, case)
+
+    return report
+
+
+def _attach_rag_narrative(report, narrator, rec, case) -> dict[str, Any]:
+    """Part 2. Never mutates impression/triage/narrative — only adds fields."""
+    result = narrator.narrate(rec, case)
+    if not result.rag_used:
+        return {"rag_used": False, "reason": result.reason}
+
+    gn = result.narrative
+    meta = {
+        "rag_used": True,
+        "verified": gn.verified,
+        "fallback_used": gn.fallback_used,
+        "flags": gn.flags,
+        "model": gn.model,
+        "kb_version": gn.kb_version,
+        "retrieved_ids": gn.retrieved_ids,
+        "raw_text": gn.raw_text,          # the LLM's unedited output (for inspection)
+    }
+    if gn.verified and not gn.fallback_used:
+        report["narrative_rag"] = gn.text
+        report["citations"] = gn.citations
+    return meta
 
 
 def render_text(rec: Recommendation, case: CaseInput) -> str:

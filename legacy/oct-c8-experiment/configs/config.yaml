@@ -9,6 +9,7 @@ defaults:
   - preprocess: default
   - training: default
   - cds: rules_v1
+  - rag: default
   - _self_
 
 seed: 1337
@@ -41,6 +42,15 @@ cds_run:
   ood: msp                 # msp (1 - max prob) | energy | none  -> ModelResult.ood_score
   write_reports_for: errors # none | errors | all  (full build_report narrative per case)
   audit: true              # append every recommendation to <output_dir>/cds/audit_<split>.jsonl
+
+# used by rag_narrate.py — attach a grounded narrative to CDS recommendations
+rag_run:
+  ckpt_path: null
+  split: external_test     # test | external_test
+  calibration: fit_val
+  ood: msp
+  limit: null              # null => all rows; or an int cap (Grad-CAM-style)
+  only_errors: false       # true => narrate only misclassified cases
 
 # hydra run/output layout
 hydra:
