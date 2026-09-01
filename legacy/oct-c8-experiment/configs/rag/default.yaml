@@ -1,0 +1,26 @@
+# Part 2 — RAG narrator. Narrative generation only; never touches the decision.
+# Corpus is knowledge_base/ at the repo root.
+
+embed:
+  model: BAAI/bge-small-en-v1.5      # 384-d, CPU-fine
+  rebuild_index: false               # force re-embed even if the cache is fresh
+
+retrieve:
+  k_semantic: 4                       # semantic hits added on top of the deterministic set
+
+llm:
+  backend: hf_local                  # stub | hf_local | anthropic
+  model: Qwen/Qwen2.5-3B-Instruct    # hf_local model id
+  device: null                       # null -> cuda if available else cpu
+  dtype: auto
+  anthropic_model: claude-sonnet-5   # used when backend=anthropic (override to a pinned id)
+  api_key_env: ANTHROPIC_API_KEY
+  max_tokens: 400
+  temperature: 0.0                   # deterministic
+  retry_uncited: 1                   # re-ask once if the only fault is missing citations
+
+verify:
+  strict: true                       # any contradiction flag -> Part 1 fallback
+
+cache:
+  enabled: true                      # knowledge_base/.cache/ (git-ignored)

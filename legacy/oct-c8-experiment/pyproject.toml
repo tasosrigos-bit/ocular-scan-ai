@@ -32,6 +32,15 @@ explain = ["grad-cam>=1.5", "matplotlib>=3.8"]
 serve = ["fastapi>=0.110", "uvicorn>=0.29"]
 track = ["mlflow>=2.11"]
 notebook = ["jupyter>=1.0", "nbconvert>=7.0", "matplotlib>=3.8"]
+# Part 2 — RAG narrator (local Qwen backend + retrieval)
+rag = [
+    "sentence-transformers>=3.0",
+    "faiss-cpu>=1.8",
+    "transformers>=4.44",
+    "accelerate>=0.33",
+]
+rag-api = ["anthropic>=0.40"]   # only for rag.llm.backend=anthropic
+app = ["streamlit>=1.36"]       # app/case_browser.py — reads pre-computed artifacts only
 dev = ["pytest>=8.0", "pytest-cov>=4.1", "ruff>=0.3", "black>=24.2"]
 
 [project.scripts]

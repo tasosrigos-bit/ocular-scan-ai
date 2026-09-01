@@ -1,99 +1,230 @@
 # OCT-Based Retinal Disease Classification and AI Clinical Decision Support
 
-8-class retinal OCT B-scan classifier (**Retinal OCT-C8**) with a deterministic
-clinical-decision-support layer that turns calibrated model probabilities into a
-triage recommendation and a human-readable report.
+Research and educational project. **Not a medical device.** Every clinical
+decision support recommendation is intended for review by a qualified clinician.
 
-> Research / decision-support tooling. **Not a diagnostic device.** Every
-> recommendation is for review by a qualified clinician.
+## 1. The Problem
 
-## Classes
+Optical Coherence Tomography (OCT) provides detailed cross-sectional images of the
+retina and is central to diagnosing conditions like macular degeneration, diabetic
+retinopathy and diabetic macular edema. However, interpreting OCT scans requires
+clinical expertise, and large volumes of images can be time-consuming to review
+manually.
 
-`AMD` · `CNV` · `CSR` · `DME` · `DR` · `Drusen` · `Macular Hole` · `Normal`
-(frozen ids in [`data/metadata/label_map.json`](data/metadata/label_map.json))
+To investigate this, I trained a convolutional neural network on the Retinal
+OCT-C8 dataset, then tested the trained model on 37 de-identified real clinical
+B-scans acquired with an OPTOPOL REVO OCT scanner. These clinic scans were held
+out from training and model selection and used only as an independent external
+validation set.
 
-## Data
+## 2. Dataset
 
-| Dataset | Role | Notes |
-|---|---|---|
-| Retinal OCT-C8 (Kaggle `obulisainaren/retinal-oct-c8`) | train / val / test | Authors' pre-split, 3,000/class → 18,400 / 2,800 / 2,800. **Not re-split.** |
-| OPTOPOL REVO clinic B-scans (`data/external/clinic_optopol/`, 37 images) | external validation only | Different vendor. Never trained on, never used for model selection. |
+Retinal OCT-C8 (Kaggle, `obulisainaren/retinal-oct-c8`) served as the training,
+validation and test data. It is the authors' original pre-split: 3,000 images per
+class, 24,000 images total (18,400 / 2,800 / 2,800), covering eight retinal
+conditions:
 
-`data/` is git-ignored — patient scans never leave this machine.
+- **AMD** — Age-related Macular Degeneration
+- **CNV** — Choroidal Neovascularization
+- **CSR** — Central Serous Retinopathy
+- **DME** — Diabetic Macular Edema
+- **DR** — Diabetic Retinopathy
+- **Drusen**
+- **Macular Hole**
+- **Normal**
 
-## Results
+(Class ids are frozen in [`data/metadata/label_map.json`](data/metadata/label_map.json).)
 
-**DenseNet-121** (ImageNet-pretrained, 224 px), best epoch 17 (val macro-F1
-0.9236), temperature-scaled on val.
+The 37 OPTOPOL REVO clinic scans (27 unique patients, some with both eyes imaged)
+cover only 4 of these 8 classes (Drusen: 22, Normal: 9, DME: 5, CNV: 1),
+reflecting the natural case mix of a small real clinic sample rather than a
+curated benchmark. They are de-identified patient data and are not included in
+this repository (`data/` is git-ignored).
 
-### Held-out test set — OCT-C8, 2,800 images
+## 3. Pre-processing
+
+Images were standardized through a deterministic pipeline: ROI crop, resize,
+grayscale-to-RGB conversion and ImageNet normalization, applied identically
+across every split so no split-specific inconsistency could bias results. Data
+augmentation was applied only during training, to reduce overfitting without
+altering the validation or test distributions.
+
+## 4. Model
+
+The classifier is a DenseNet-121, initialized with ImageNet-pretrained weights and
+fine-tuned on OCT-C8. Transfer learning was chosen deliberately: starting from
+general visual features and adapting them to OCT-specific structure is both more
+data-efficient and faster to train than learning from scratch on 18,400 images.
+
+```
+OCT image → DenseNet-121 (ImageNet-pretrained) → learned features → classification head → 8-class probabilities
+```
+
+Training used the Adam optimizer with weight decay, cross-entropy loss, a
+head-warmup phase (first 3 epochs train only the new classification head; the
+backbone unfreezes afterward), learning-rate scheduling, early stopping
+(patience 7 on validation macro-F1) and best-checkpoint selection.
+
+## 5. Results
+
+The best model (epoch 17 by validation macro-F1) was evaluated on OCT-C8's
+held-out test set of 2,800 images, with temperature scaling fit on validation
+data to calibrate output probabilities.
 
 | Metric | Value |
 |---|---|
-| Accuracy | **96.46%** |
-| Macro-F1 | **96.46%** |
-| Expected Calibration Error (after temperature scaling) | **0.64%** |
+| Accuracy | 96.46% |
+| Macro-F1 | 96.46% |
+| Expected Calibration Error (post-calibration) | 0.64% |
 
-Per-class sensitivity / specificity / precision / F1 / AUROC / AUPRC and the
-confusion matrix: `<output_dir>/eval/metrics_test.json`, `confusion_test.csv`.
+Four classes (AMD, CSR, DR, Macular Hole) achieved perfect scores across every
+metric. The harder classes (CNV, DME, Drusen) still scored strongly (F1 90–93%),
+reflecting genuine visual overlap between these conditions on OCT. Full per-class
+figures are written to `<output_dir>/eval/metrics_test.json` and
+`confusion_test.csv`.
 
-### External validation — OPTOPOL REVO clinic scans, 37 images
+This result was reproduced on a separate day from a freshly retrained model with
+the same random seed. Every metric, including per-class figures, matched to the
+decimal, confirming the training pipeline is fully deterministic.
 
-| Metric | Value |
+## 6. External Clinical Validation
+
+The trained model was then evaluated on the 37 real clinical OCT scans acquired
+with the OPTOPOL REVO scanner.
+
+| Dataset | Accuracy |
 |---|---|
-| Accuracy | **59.46%** |
+| OCT-C8 held-out test set | 96.46% |
+| OPTOPOL REVO clinical scans | 59.46% |
 
-A ~37-point drop from the internal test set. The clinic scans come from a
-different device family (OPTOPOL REVO) than OCT-C8's source scanners, so this is
-a **domain-shift** finding, not a model-quality one. Only 4 of 8 classes appear
-in the clinic set (Drusen 22, Normal 9, DME 5, CNV 1). See
-[LIMITATIONS.md](LIMITATIONS.md).
+The approximately 37-percentage-point reduction in accuracy was one of the most
+important findings.
 
-### CDS safety gap under domain shift
+I investigated why the performance changed so substantially. The likely cause is
+domain shift: the public OCT-C8 images and the clinical scans were acquired under
+different imaging conditions, and differences in scanner characteristics,
+contrast, noise and acquisition protocol can change the visual distribution
+presented to the model even when the underlying anatomy is identical.
 
-The CDS layer should *abstain* ("refer to specialist") when the model is unsure
-rather than assert a wrong triage. It does on genuinely low-confidence cases —
-but **MSP-based confidence does not reliably flag confident-but-wrong
-predictions**, the dominant failure mode under domain shift:
+A model can perform extremely well on a held-out test set while still failing to
+generalize to a different clinical domain. This became a central finding of this
+experiment.
+
+## 7. Explainability with Grad-CAM
+
+To investigate the model's predictions rather than looking only at accuracy, I
+used Grad-CAM (Gradient-weighted Class Activation Mapping), which visualizes the
+image regions that contributed most strongly to a prediction. This was applied to
+the clinical errors specifically (the misclassified Drusen cases), to distinguish
+between two possible failure modes:
+
+1. The model is looking at the wrong part of the image.
+2. The model is looking at the relevant retinal region but interpreting it
+   incorrectly.
+
+In the cases examined, the model's attention was consistently concentrated around
+the correct retinal region of interest, even when the final classification was
+wrong. This suggests the failures were not caused by the model attending to
+irrelevant background: it could identify the relevant anatomical region but still
+assign the wrong disease label. This is an important distinction, because visual
+attention alone is not sufficient to guarantee a clinically reliable prediction.
+
+![DRUSEN_3__L — raw B-scan and Grad-CAM for the predicted class Normal (0.88)](docs/figures/gradcam_drusen_wrong_1.png)
+![DRUSEN_4__L — raw B-scan and Grad-CAM for the predicted class CSR (0.54)](docs/figures/gradcam_drusen_wrong_2.png)
+
+*Two misclassified clinical Drusen scans. Each strip is `[ raw B-scan | Grad-CAM
+for the predicted (wrong) class ]`; the heatmap for the wrong label still sits on
+the drusen region. Source overlays and selection notes:
+[docs/figures/README.md](docs/figures/README.md).*
+
+## 8. Clinical Decision Support Safety Layer
+
+A rule-based Clinical Decision Support (CDS) layer was added to translate model
+predictions and calibrated confidence into a triage recommendation (routine, soon,
+urgent, or defer to specialist), with the goal of testing whether a
+confidence-based safety mechanism can prevent uncertain predictions from becoming
+unsafe recommendations.
+
+The results revealed an important limitation. Among the 14 misclassified Drusen
+clinical cases, several predictions carried high enough softmax confidence that
+the CDS layer did not flag them as uncertain:
+
+- **7 of the 14 misclassified Drusen cases were confidently triaged as "no
+  referral."**
+
+The same pattern appears in-distribution and worsens under domain shift. For each
+misclassification, the table shows whether CDS deferred it to a specialist (the
+safe outcome) or asserted a confident wrong triage:
 
 | Split | Misclassifications | Confident wrong triage | Deferred to specialist |
 |---|---|---|---|
 | Test (OCT-C8) | 99 | 63 | 36 |
-| External — Drusen only | 14 | 10 (7 triaged **`none`** / "no referral") | 4 |
+| External — Drusen only | 14 | 10 (7 → `none`) | 4 |
 
-Seven misclassified clinic Drusen scans were confidently triaged as needing **no
-referral** — the worst direction for a screening aid. Proposed fix (Mahalanobis
-feature-space OOD detection) is a TODO — see [LIMITATIONS.md](LIMITATIONS.md).
+Even on the in-distribution test set, MSP-based confidence lets roughly two
+thirds of errors through as confident triage calls; on the domain-shifted clinic
+Drusen scans it is worse still.
 
-### Grad-CAM — misclassified clinic Drusen
+This is more concerning than a simple classification error, because the model was
+not merely wrong: it was wrong with enough apparent confidence to influence the
+downstream decision-support output. The underlying issue is not a poorly tuned
+confidence threshold; it is that maximum softmax probability (MSP) reflects the
+model's certainty relative to its own learned decision boundary, not whether the
+input resembles anything it was trained on. A domain-shifted image can push the
+model confidently toward the wrong class precisely because MSP has no mechanism
+for recognizing "this doesn't look like my training data"; it only measures
+relative certainty among the classes it already knows.
 
-![DRUSEN_3__L — raw B-scan · Grad-CAM for the predicted class Normal (0.88)](docs/figures/gradcam_drusen_wrong_1.png)
-![DRUSEN_4__L — raw B-scan · Grad-CAM for the predicted class CSR (0.54)](docs/figures/gradcam_drusen_wrong_2.png)
+### Part 2 — retrieval-augmented narrative layer
 
-Each strip is `[ raw B-scan | Grad-CAM for the predicted (wrong) class ]` on the
-model's 224 px input view.
+A follow-on layer adds a clinician-facing narrative explanation on top of the
+Part 1 recommendation, generated by a local language model (Qwen2.5-3B) grounded
+in a small curated knowledge base (National Eye Institute and CC-BY sources only;
+AAO Preferred Practice Patterns are excluded on licensing grounds). The language
+model never makes or influences the diagnostic or urgency decision: the
+impression and triage are copied verbatim from Part 1's rule engine, and an
+automated check discards any narrative that cites a passage it was not given,
+asserts a different class, or softens the fixed triage.
 
-**Finding: correct localisation, wrong classification.** Even when the model
-calls these scans `Normal`/`CSR`, its Grad-CAM for that wrong class still sits on
-the drusen region — and across the 4 misclassification pairs reviewed with
-`explain.target=both`, 3 of 4 had the predicted- and true-class heatmaps in
-nearly the **same** place (only `DRUSEN_9__L` → DME diverged). 8 of 14
-misclassified Drusen scans were called `Normal`. So the error is *semantic, not
-spatial*: the model attends to the pathology but misreads what it is. A
-saliency-overlap or "is it looking at the retina?" check would not flag this —
-reinforcing the case for feature-space OOD detection in the CDS layer
-([LIMITATIONS.md](LIMITATIONS.md)).
+On the 37-scan clinic set: 16 cases skipped as predicted-normal and 6 as
+model-abstained; of the 15 remaining, **15/15 (100%) produced a verified,
+fully-cited narrative** (12 first-shot, 3 after one citation retry), with zero
+fallbacks and zero unresolved citations. Full write-up:
+**[PART2.md](PART2.md)**.
 
-Source overlays and the selection rationale:
-[docs/figures/README.md](docs/figures/README.md). Regenerate with `python
-explain.py paths=<env> explain.split=external_test 'explain.classes=[Drusen]'
-explain.only_errors=true explain.target=both`.
+## 9. Limitations
+
+- **Small external clinical sample.** The clinical validation set contains only 37
+  scans (27 unique patients) and cannot be treated as a representative clinical
+  dataset.
+- **Class imbalance.** The clinical scans are heavily concentrated in Drusen and
+  Normal cases, with only one CNV scan. Class-specific clinical performance should
+  be interpreted cautiously, and CNV results are not statistically meaningful at
+  n = 1.
+- **Domain shift.** The large gap between OCT-C8 and OPTOPOL performance
+  demonstrates that scanner and acquisition differences can significantly affect
+  model generalization.
+- **Confidence is not the same as reliability.** The CDS experiment showed that
+  maximum softmax probability can remain high even when the model is incorrect
+  under domain shift.
+- **No feature-space OOD detector yet.** A concrete next step is feature-space
+  out-of-distribution detection (e.g. Mahalanobis distance), so unfamiliar
+  clinical images can be flagged before a confident-but-wrong prediction becomes a
+  CDS recommendation.
+
+Full detail, including per-class external caveats and the Grad-CAM review, is in
+[LIMITATIONS.md](LIMITATIONS.md).
+
+---
+
+The practical guide to running the code.
 
 ## Layout
 
 ```
-configs/            Hydra configs (paths/ data/ model/ training/ preprocess/ cds/)
+configs/            Hydra configs (paths/ data/ model/ training/ preprocess/ cds/ rag/)
 data/metadata/      label_map.json + data dictionary (only tracked data files)
+knowledge_base/     Part 2 RAG corpus — 6 curated entries (NEI + CC-BY) + SOURCES.md
 src/oct_cds/
   data/             manifests, OPTOPOL filename parser, Dataset + DataModule, QC
   preprocessing/    deterministic transforms + train-only augmentation
@@ -101,8 +232,13 @@ src/oct_cds/
   evaluation/       metrics (sens/spec, AUROC/AUPRC, QWK, ECE), confusion, bootstrap CIs
   explainability/   Grad-CAM runner + heatmap overlays
   cds/              schema, rule engine, OOD gate, guideline refs, report, audit, batch summary
+  rag/              Part 2 — ingest, embed, FAISS index, decision-aware retrieval,
+                    LLM backends, prompt, narrator, verify.py guardrail, cache
 train.py  eval.py  explain.py  cds.py    Hydra entrypoints (train → eval → explain → CDS)
-notebooks/demo.ipynb   end-to-end walkthrough of the finished pipeline
+rag_narrate.py                           Part 2 entrypoint (grounded narrative layer)
+app/case_browser.py         Streamlit viewer for the pre-computed clinic narratives
+notebooks/demo.ipynb        Part 1 end-to-end walkthrough
+notebooks/demo_part2.ipynb  Part 2 walkthrough (knowledge base, a narrated case, verify stats)
 tests/
 ```
 
@@ -189,10 +325,23 @@ python -m oct_cds.cli cds demo                      # single synthetic case
 > Tune thresholds on the CLI: `cds.min_confidence=0.75 cds.min_margin=0.20`.
 
 ```bash
+# 6. Part 2 — grounded narrative layer  (pip install -e '.[rag]')
+python rag_narrate.py paths=kaggle rag.llm.backend=stub          # offline sanity check
+python rag_narrate.py paths=kaggle rag_run.split=external_test   # local Qwen2.5-3B
+```
+> Runs Part 1's CDS recommendation, then a local LLM writes a cited narrative
+> grounded in `knowledge_base/`. `verify.py` discards any narrative that cites an
+> unretrieved passage, asserts a different class, or softens the fixed triage —
+> on failure the report keeps Part 1's templated text. Writes
+> `<output_dir>/rag/narratives_<split>.jsonl`, `summary_<split>.json`, and
+> `rejected_<split>.txt`. The LLM never touches the decision. See
+> **[PART2.md](PART2.md)**.
+
+```bash
 pytest
 ```
 
-### Demo notebook
+### Experiment notebook
 
 [`notebooks/demo.ipynb`](notebooks/demo.ipynb) walks the finished pipeline —
 manifest summary, model architecture, test metrics + confusion matrix, external
@@ -210,6 +359,19 @@ OCT_CDS_ENV=kaggle jupyter nbconvert --to html --execute notebooks/demo.ipynb --
 
 It picks up `configs/paths/$OCT_CDS_ENV.yaml` (`kaggle` or `default`); each cell
 prints the command to run if its artifact is missing.
+
+[`notebooks/demo_part2.ipynb`](notebooks/demo_part2.ipynb) does the same for
+Part 2 — the knowledge base, one narrated case with its citation-grounded
+narrative, and the verification summary (`pip install -e ".[notebook,rag]"`).
+
+### Case browser app
+
+[`app/case_browser.py`](app/case_browser.py) is a chat-style Streamlit app for
+browsing all 37 pre-computed clinic narratives — the OCT scan, Part 1's frozen
+decision, and the grounded narrative (or the "skipped / fell back" notice), with
+a Verified indicator from `narrator_meta`. No model, no GPU. See
+[app/README.md](app/README.md) for the local and Kaggle (cloudflared tunnel) run
+recipes.
 
 ## Reproducing this project
 
@@ -248,13 +410,6 @@ including per-class, to the decimal). To skip retraining, download the exact
 and place them under `<output_dir>/checkpoints/` and `<output_dir>/calibrators/`
 respectively (`eval.py` / `explain.py` / `cds.py` auto-pick the checkpoint from
 there).
-
-## Limitations
-
-The external-validation and CDS findings have important caveats — small
-single-device external set, 4 of 8 classes never externally validated, CNV
-n = 1, the domain-shift result, and the MSP-confidence gap in the CDS layer.
-**Read [LIMITATIONS.md](LIMITATIONS.md) before citing any result.**
 
 ## Pipeline stages
 
