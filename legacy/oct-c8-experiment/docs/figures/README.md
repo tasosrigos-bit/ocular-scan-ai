@@ -1,7 +1,18 @@
 # Figures used in the README
 
-The two `gradcam_drusen_wrong_*.png` files are copied out of the (git-ignored)
-`explain.py` run outputs so the README renders on GitHub.
+Static images committed so the README renders on GitHub. The Grad-CAM strips come
+from (git-ignored) `explain.py` output; `case_browser.png` is a screenshot.
+
+## `case_browser.png` — the Part 2 app
+
+Screenshot of [`app/case_browser.py`](../../app/case_browser.py) running (light
+mode), showing a **verified Drusen case**: the OCT scan, Part 1's frozen decision
+(Drusen, `routine`), and the grounded narrative with `[amd#overview]`-style
+citation markers highlighted and the `✓ VERIFIED` badge. Used in the README
+"Part 2" subsection (§8).
+
+Regenerate: run the app (see [`app/README.md`](../../app/README.md)), open a
+verified case, take a full-width screenshot, save as `docs/figures/case_browser.png`.
 
 ## What the overlays show
 
