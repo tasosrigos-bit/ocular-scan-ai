@@ -222,6 +222,19 @@ with scan_col:
             "decision rested on at coarse resolution, and is not a lesion outline."
         )
         st.caption("Decision-support output, not a diagnosis. Confirm by clinical examination.")
+
+        from oct_cds.cds.rules import CDSRuleEngine
+        from oct_cds.cds.schema import CaseInput, ModelResult
+
+        engine = CDSRuleEngine()
+        model_result = ModelResult(probs=probs, model_version="convnext_final_e1")
+        case = CaseInput(image_path=str(path), symptoms=[])
+        rec = engine.evaluate(model_result, case)
+
+        st.markdown(f"**Urgency:** {rec.urgency.value.upper()}")
+        st.caption(rec.recommendation_text)
+        if rec.abstained:
+            st.warning("Model confidence/margin below threshold — CDS recommends deferring to specialist review.")
     else:
         st.session_state.pop("scan_path", None)
         st.info("Upload an OCT B-scan to classify it. The assistant can then discuss the finding.")

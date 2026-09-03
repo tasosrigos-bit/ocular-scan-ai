@@ -1,0 +1,30 @@
+version: 1
+
+min_confidence: 0.60
+
+min_margin: 0.15
+
+ood_reject_score: 0.80
+
+urgency_by_group:
+  referable_urgent: urgent
+  referable: soon
+  monitor: routine
+  normal: none
+
+urgency_overrides:
+  CNV: urgent
+  DME: urgent
+
+abstain_action:
+  urgency: soon
+  recommendation: >
+    Model confidence insufficient for an automated impression. Recommend
+    review by a retinal specialist.
+
+report:
+  disclaimer: >
+    AI-generated decision support for use by a qualified clinician. Not a
+    diagnostic device. Does not replace clinical judgment or dilated exam.
+  include_gradcam: true
+  cite_guidelines: true

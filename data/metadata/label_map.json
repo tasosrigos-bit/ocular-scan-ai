@@ -1,0 +1,19 @@
+{
+  "dataset": "kermany-oct2017-4class",
+  "num_classes": 4,
+  "ordering": "alphabetical_by_canonical_name (fixed; index == training class id; matches ocular.config.CLASSES)",
+  "classes": [
+    { "id": 0, "key": "CNV",    "name": "Choroidal Neovascularization", "dir": "CNV",    "group": "referable_urgent", "description": "Neovascular membrane with subretinal/intraretinal fluid; wet AMD spectrum." },
+    { "id": 1, "key": "DME",    "name": "Diabetic Macular Edema",       "dir": "DME",    "group": "referable_urgent", "description": "Retinal thickening with intraretinal cystoid spaces / hard exudates in a diabetic context." },
+    { "id": 2, "key": "DRUSEN", "name": "Drusen",                       "dir": "DRUSEN", "group": "monitor",          "description": "Discrete sub-RPE deposits; early/intermediate AMD risk marker without CNV or GA." },
+    { "id": 3, "key": "NORMAL", "name": "Normal",                       "dir": "NORMAL", "group": "normal",           "description": "No pathological OCT findings; preserved foveal contour and retinal layer architecture." }
+  ],
+  "key_to_id": { "CNV": 0, "DME": 1, "DRUSEN": 2, "NORMAL": 3 },
+  "id_to_key": { "0": "CNV", "1": "DME", "2": "DRUSEN", "3": "NORMAL" },
+  "dir_aliases": { "CNV": "CNV", "DME": "DME", "DRUSEN": "DRUSEN", "NORMAL": "NORMAL" },
+  "notes": [
+    "`group` is consumed by the CDS rule layer (configs/cds/rules_v1.yaml) for urgency mapping, not by the classifier.",
+    "Key order and ids match ocular.config.CLASSES = ['CNV','DME','DRUSEN','NORMAL'] (Kermany OCT2017).",
+    "Class ids are frozen. If classes change, bump the `dataset` tag and retrain — do not silently reorder."
+  ]
+}

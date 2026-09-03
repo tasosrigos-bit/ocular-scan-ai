@@ -16,12 +16,16 @@ data/*
 # level has to be re-included in turn, because git cannot descend into an excluded
 # directory to reach a file inside it.
 !data/split.csv
-
+!data/metadata/
+data/metadata/*
+!data/metadata/label_map.json
 !data/raw/
 data/raw/*
+
 # The 37 de-identified clinic B-scans, 11 MB. The reports they came from stay out
 # permanently, see the Reports rule below.
 !data/raw/bscans/
+
 # The OCTDL label file, 53 KB, which maps its vocabulary onto the four classes.
 !data/raw/octdl_dl/
 data/raw/octdl_dl/*
