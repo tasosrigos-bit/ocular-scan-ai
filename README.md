@@ -21,7 +21,7 @@ in this repository. How each one is obtained and where it belongs is described u
 | --- | --- | --- | --- |
 | Kermany OCT2017 | training | Heidelberg Spectralis | Public. Split is rebuilt at the patient level in notebook 01. |
 | OCTDL | selection | Optovue Avanti | Public. Held out. Configurations are ranked on it. |
-| Clinic | confirmation | OPTOPOL | 37 de-identified B-scans, tracked. Confirms, never selects. |
+| Clinic | confirmation | OPTOPOL | 37 de-identified B-scans, shared separately. Confirms, never selects. |
 
 The Kermany test split is not used for reporting because 89 percent of its patients
 also appear in training. Notebook 01 shows this and builds a clean patient-level
@@ -167,11 +167,14 @@ disease and condition columns and ignores the rest, which reduces the record to 
 1,137 images every OCTDL number in this project is measured on. Downloading the whole
 record is therefore correct, and the extra groups are simply never read.
 
-**The clinic scans are in the repository.** The 37 de-identified B-scans are tracked
-under `data/raw/bscans`, at 11 MB, together with the manifest recording where each was
-cut from its report. The reports themselves carry patient name, identifier and date of
-birth, and are excluded permanently. The scans were checked to carry no burned-in
-identifier before being committed.
+**The clinic scans are shared separately.** The 37 de-identified B-scans are
+patient-derived, so they are not kept in the repository. They are provided as
+`clinic_bscans.zip` through a private link and are unpacked by hand so that
+`data/raw/bscans` holds the 37 PNGs and the manifest recording where each was cut from
+its report. The source reports, which carry patient name, identifier and date of birth,
+are never shared. The scans are checked to carry no burned-in identifier, and they are
+needed only for the clinic evaluation in notebooks 04 and 05; the application and every
+other notebook run without them.
 
 **The retrieval artifacts are downloaded or rebuilt.** The corpus, the chunk caches
 and the retrieval index are build artifacts, so they are attached to the release rather
@@ -202,9 +205,9 @@ and removes a regeneration step that could silently diverge.
 
 Every number and figure this project reports is committed under
 `experiments/results/`, so the notebooks that present those results run on a fresh
-clone. Notebooks 03, 04 and 09 need nothing beyond the clone. Notebook 05 needs only the
-delivered checkpoint, since the clinic scans it explains are tracked, and notebook 04
-needs it too for the one cell that rescores the clinic set. Notebooks 06 to 08 need the
+clone. Notebooks 03 and 09 need nothing beyond the clone. Notebook 05 needs the
+delivered checkpoint and the separately provided clinic scans, and notebook 04 needs them
+too for the one cell that rescores the clinic set. Notebooks 06 to 08 need the
 retrieval archive. Notebooks 01 and 02 build and illustrate the classifier pipeline
 itself and are the only two that need the 5.8 GB of downloaded imagery.
 
