@@ -46,3 +46,6 @@ Reports/
 
 # Claude Code local config and scratch.
 .claude/
+
+# The course report and its figures, written locally and submitted outside git.
+report/
