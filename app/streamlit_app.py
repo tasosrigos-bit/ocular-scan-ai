@@ -28,6 +28,12 @@ from ocular.rag import index, llm, rerank, tools
 # retrieval settings the search tool uses under the hood.
 INDEX = "fixed__MedEmbed-base-v0.1"
 
+# The most tool rounds one answer may take. A scan question needs two in sequence,
+# classify_scan first and then a search on what it found, before the model writes
+# the answer, so the cap sits a little above that and forces a text answer on the
+# last round rather than letting the model spend it on another tool call.
+MAX_TOOL_ROUNDS = 4
+
 _SYSTEM = """You are a clinical decision-support assistant for ophthalmologists, working alongside a
 classifier for OCT B-scans. Your role is to support the clinician's judgement, never to replace it.
 Follow these rules without exception.
@@ -102,15 +108,21 @@ def _sources_of(hits) -> list[dict]:
 
 
 def _reply(messages: list[dict]) -> tuple[str, list[dict]]:
-    """Answer with basic RAG: one round of tool calls, then a grounded answer.
+    """Answer with basic RAG: a short run of tool calls, then a grounded answer.
 
-    The model is given the two tools and may call ``classify_scan`` and
-    ``search_corpus``, each of which runs once. ``search_corpus`` performs a single
-    retrieval under the selected configuration (fixed chunks, the biomedical
-    embedder, hybrid retrieval, the gte reranker), so the assistant is basic rather
-    than agentic: it does not loop to reformulate the query and search again, which
-    the Phase B evaluation in notebook 09 found brings no gain at higher cost. The
-    tool results are then fed back once and the model writes the final cited answer.
+    The model is given the two tools and works in rounds. In each round it may call
+    ``classify_scan`` or ``search_corpus``, the results are fed back, and it is asked
+    again, until it stops calling tools and writes the answer. The rounds are needed
+    because the tools depend on each other: for a question about the scan the model
+    classifies it first and only then searches the literature for what it found, so
+    the two calls happen one after another rather than at once. ``search_corpus``
+    still performs a single retrieval per call under the selected configuration
+    (fixed chunks, the biomedical embedder, hybrid retrieval, the gte reranker), so
+    the assistant stays basic rather than agentic and does not run the reformulate
+    and search again loop that the Phase B evaluation in notebook 09 found brings no
+    gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
+    forbids tool calls, so the model always ends on a written answer rather than an
+    unanswered tool call.
 
     Returns the answer together with the passages the search returned, in the order
     they were numbered for the model, so the application can show the evidence the
@@ -129,13 +141,17 @@ def _reply(messages: list[dict]) -> tuple[str, list[dict]]:
     for m in messages:
         convo.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
 
-    reply = _chat().bind_tools([search, classify]).invoke(convo)
-    if reply.tool_calls:
+    bound = _chat().bind_tools([search, classify])
+    for round_ in range(MAX_TOOL_ROUNDS):
+        last = round_ == MAX_TOOL_ROUNDS - 1
+        model = _chat().bind_tools([search, classify], tool_choice="none") if last else bound
+        reply = model.invoke(convo)
+        if not reply.tool_calls:
+            break
         convo.append(reply)
         for call in reply.tool_calls:
             result = toolmap[call["name"]].invoke(call["args"])
             convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
-        reply = _chat().invoke(convo)  # unbound, so it must produce the final answer as text
     return _text(reply.content), _sources_of(hits)
 
 
