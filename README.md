@@ -174,7 +174,14 @@ patient-derived, so they are not kept in the repository. They are provided as
 its report. The source reports, which carry patient name, identifier and date of birth,
 are never shared. The scans are checked to carry no burned-in identifier, and they are
 needed only for the clinic evaluation in notebooks 04 and 05; the application and every
-other notebook run without them.
+other notebook run without them. From the repository root,
+
+```
+unzip clinic_bscans.zip -d data/raw/
+```
+
+puts them in place, so that `data/raw/bscans/` holds the 37 `CLASS_index__laterality.png`
+files and `manifest.json`.
 
 **The retrieval artifacts are downloaded or rebuilt.** The corpus, the chunk caches
 and the retrieval index are build artifacts, so they are attached to the release rather
