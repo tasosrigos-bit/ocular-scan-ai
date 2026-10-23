@@ -44,6 +44,16 @@ module-name = "ocular"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0",
     "jupyter>=1.1.1",
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The repository root, so `from app import api` resolves without `app` being a package.
+pythonpath = ["."]
+markers = [
+    "slow: needs the delivered checkpoint and the clinic scans; run with `uv run pytest -m slow`",
+]
+addopts = "-m 'not slow'"

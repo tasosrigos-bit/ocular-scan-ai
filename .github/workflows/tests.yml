@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # The locked PyTorch is the default PyPI build, which on Linux bundles CUDA and
+      # weighs several gigabytes. The tests run on CPU, so the same versions are
+      # installed from the CPU-only index instead, and everything else from the lock.
+      - name: Install dependencies
+        run: |
+          uv sync --locked --no-install-package torch --no-install-package torchvision
+          uv export --format requirements-txt --no-hashes \
+            | grep -E '^(torch|torchvision)==' > torch-cpu.txt
+          uv pip install -r torch-cpu.txt --index-url https://download.pytorch.org/whl/cpu
+
+      # The slow tests need the checkpoint and the clinic scans, which are not in the
+      # repository, so CI runs the default selection, which leaves them out.
+      - name: Run tests
+        run: uv run --no-sync pytest -v

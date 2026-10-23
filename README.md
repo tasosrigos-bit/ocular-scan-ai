@@ -1,5 +1,7 @@
 # ocular-scan-ai
 
+[![tests](https://github.com/tasosrigos-bit/ocular-scan-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/tasosrigos-bit/ocular-scan-ai/actions/workflows/tests.yml)
+
 Retinal OCT B-scan classification into CNV, DME, DRUSEN and NORMAL, trained on one
 acquisition device and measured on devices that were absent from training. The
 central question is not accuracy on a held-out split of the training set, which is
@@ -49,6 +51,7 @@ experiments/    the compute scripts and the result files they write
 scripts/        the data-build steps for the retrieval corpus and its indexes
 notebooks/      the presentation, read the result files and explain them
 app/            the FastAPI service and its web front-end over the classifier and the assistant
+tests/          the pytest suite, run on every push by .github/workflows/tests.yml
 data/           local only, not tracked: raw images, caches, split.csv, corpus, indexes
 ```
 
@@ -236,6 +239,24 @@ interactive API documentation is at http://localhost:8000/docs. The embedding mo
 and the reranker are pulled from Hugging Face on first use and cached there, so the
 first question is slower than the rest. If the index is missing the application says so
 and repeats the download command rather than failing with a bare path.
+
+### Running the tests
+
+```
+uv run pytest
+```
+
+runs the fast suite, which needs none of the data, the checkpoint or an API key. It
+covers chunking, the three retrieval modes and the reciprocal rank fusion, the two
+assistant tools, the assistant's tool loop driven by a scripted model, the image
+preprocessing, and every API endpoint with the models replaced by stubs. GitHub
+Actions runs the same suite on every push. Two slower tests load the delivered
+checkpoint and classify a real clinic scan end to end. They are skipped when those
+files are missing and run with
+
+```
+uv run pytest -m slow
+```
 
 ## The delivered model
 
