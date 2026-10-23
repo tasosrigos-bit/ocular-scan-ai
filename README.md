@@ -8,7 +8,7 @@ on a scanner it has never seen. The drusen class is the hardest, so it is tracke
 throughout as the primary signal.
 
 Alongside the classifier, the project builds a retrieval-augmented assistant that
-answers ophthalmology questions from a curated journal corpus, and a Streamlit
+answers ophthalmology questions from a curated journal corpus, and a web
 application that puts the two together in front of a clinician.
 
 ## Datasets and their roles
@@ -48,7 +48,7 @@ ocular/         the package
 experiments/    the compute scripts and the result files they write
 scripts/        the data-build steps for the retrieval corpus and its indexes
 notebooks/      the presentation, read the result files and explain them
-app/            the Streamlit application over the classifier and the assistant
+app/            the FastAPI service and its web front-end over the classifier and the assistant
 data/           local only, not tracked: raw images, caches, split.csv, corpus, indexes
 ```
 
@@ -134,8 +134,10 @@ add an LLM API key to a git-ignored `.env` at the repository root as
 `GEMINI_API_KEY=...`, and start the application with
 
 ```
-uv run streamlit run app/streamlit_app.py
+uv run uvicorn app.api:app
 ```
+
+then open http://localhost:8000.
 
 Notebooks 01 and 02 additionally need the two public datasets, described under *The
 data* below. Every reported number can be regenerated rather than read, by re-running
@@ -225,13 +227,15 @@ delivered checkpoint, the retrieval archive above, and an LLM API key in a git-i
 `.env` at the repository root as `GEMINI_API_KEY=...`. With those in place,
 
 ```
-uv run streamlit run app/streamlit_app.py
+uv run uvicorn app.api:app
 ```
 
-starts it. The embedding model and the reranker are pulled from Hugging Face on first
-use and cached there, so the first question is slower than the rest. If the index is
-missing the application says so and repeats the download command rather than failing
-with a bare path.
+starts it at http://localhost:8000. The page is served by the same process as the
+API, `POST /api/predict` for a scan and `POST /api/chat` for the assistant, and the
+interactive API documentation is at http://localhost:8000/docs. The embedding model
+and the reranker are pulled from Hugging Face on first use and cached there, so the
+first question is slower than the rest. If the index is missing the application says so
+and repeats the download command rather than failing with a bare path.
 
 ## The delivered model
 

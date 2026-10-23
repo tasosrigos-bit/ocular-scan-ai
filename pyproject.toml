@@ -5,6 +5,7 @@ description = "Retinal OCT B-scan classification into CNV, DME, DRUSEN and NORMA
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.162.0",
     "google-genai>=2.19.0",
     "langchain-core>=1.6.0",
     "langchain-google-genai>=4.3.5",
@@ -17,14 +18,15 @@ dependencies = [
     "pillow>=12.3.0",
     "pymupdf>=1.28.2",
     "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.32",
     "rank-bm25>=0.2.2",
     "scikit-learn>=1.9.0",
     "scipy>=1.18.0",
     "sentence-transformers>=6.0.0",
-    "streamlit>=1.62.0",
     "torch>=2.13.0",
     "torchvision>=0.28.0",
     "tqdm>=4.70.0",
+    "uvicorn[standard]>=0.52.4",
 ]
 
 # Without a build system the package is not installable, and `from ocular import

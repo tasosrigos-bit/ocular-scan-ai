@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ocular Scan AI</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <svg class="logo" width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <path d="M6 24 C18 24 22 25 26 30 C29 37 35 37 38 30 C42 25 46 24 58 24" stroke="#17607A" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M6 42 C22 41 42 41 58 42" stroke="#17607A" stroke-width="3.5" stroke-linecap="round" opacity="0.45"/>
+    </svg>
+    <div class="brand"><strong>Ocular</strong> Scan AI</div>
+  </header>
+
+  <main class="layout">
+    <section class="scan-column" aria-label="Scan analysis">
+      <div class="card">
+        <div class="card-head">
+          <h2>OCT B-scan</h2>
+          <button type="button" class="link-button" id="replace" hidden>Replace</button>
+          <div class="views" role="group" aria-label="Scan view">
+            <button type="button" data-view="orig" disabled>Original</button>
+            <button type="button" data-view="input" disabled>Model input</button>
+            <button type="button" data-view="cam" aria-pressed="true" disabled>Grad-CAM</button>
+          </div>
+        </div>
+
+        <input id="file" type="file" accept="image/png,image/jpeg" hidden>
+        <button type="button" class="stage drop" id="drop">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <span class="drop-title">Drop a B-scan here or click to browse</span>
+          <span class="drop-hint">PNG or JPEG, one B-scan per upload</span>
+        </button>
+        <div class="stage" id="viewer" hidden>
+          <img id="viewer-img" alt="">
+          <div class="busy" id="busy" hidden><span class="spinner" aria-hidden="true"></span>Analysing scan…</div>
+        </div>
+        <p class="error" id="scan-error" role="alert" hidden></p>
+      </div>
+
+      <div class="card" id="prediction">
+        <div class="eyebrow">Predicted class</div>
+        <div class="pred-empty" id="pred-empty">
+          <div class="pred-empty-title" id="pred-empty-title">No scan yet</div>
+          <div class="pred-empty-text" id="pred-empty-text">Upload an OCT B-scan to see the predicted class and the probability of CNV, DME, drusen and normal.</div>
+        </div>
+        <div id="pred-result" hidden>
+          <div class="verdict">
+            <div class="verdict-label" id="pred-label"></div>
+            <div class="verdict-full" id="pred-full"></div>
+            <div class="verdict-pct" id="pred-pct"></div>
+          </div>
+          <div class="bars" id="bars"></div>
+        </div>
+        <p class="note">Decision support only. The prediction does not replace a clinician's reading of the scan.</p>
+      </div>
+    </section>
+
+    <section class="chat" aria-label="Literature assistant">
+      <div class="chat-head">
+        <div>
+          <h2>Literature assistant</h2>
+          <div class="sub">Answers grounded in the PMC ophthalmology corpus</div>
+        </div>
+        <div class="context" id="context" hidden></div>
+      </div>
+
+      <div class="messages" id="messages" aria-live="polite">
+        <p class="empty" id="empty">Ask about the uploaded scan or any ophthalmology question. Clinical answers are grounded in the literature and cited.</p>
+      </div>
+
+      <div class="suggestions" id="suggestions"></div>
+
+      <form class="composer" id="composer">
+        <label for="ask" class="visually-hidden">Ask about this scan</label>
+        <input id="ask" type="text" autocomplete="off" placeholder="Ask about this scan or the condition">
+        <button type="submit" class="send" aria-label="Send question">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
