@@ -15,15 +15,10 @@ jobs:
         with:
           enable-cache: true
 
-      # The locked PyTorch is the default PyPI build, which on Linux bundles CUDA and
-      # weighs several gigabytes. The tests run on CPU, so the same versions are
-      # installed from the CPU-only index instead, and everything else from the lock.
+      # sync_cpu.sh installs the lock with CPU-only PyTorch, skipping the CUDA build
+      # and its nvidia packages, which the tests do not need.
       - name: Install dependencies
-        run: |
-          uv sync --locked --no-install-package torch --no-install-package torchvision
-          uv export --format requirements-txt --no-hashes \
-            | grep -E '^(torch|torchvision)==' > torch-cpu.txt
-          uv pip install -r torch-cpu.txt --index-url https://download.pytorch.org/whl/cpu
+        run: scripts/sync_cpu.sh
 
       # The slow tests need the checkpoint and the clinic scans, which are not in the
       # repository, so CI runs the default selection, which leaves them out.

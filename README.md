@@ -38,6 +38,8 @@ outcome. No notebook trains a model.
 ```
 ocular/         the package
   config.py       paths, class order, seed (shared by both subsystems)
+  service.py      the scan analysis and the assistant's tool loop behind the application
+  observability.py  MLflow tracing of both, off unless a tracking server is configured
   classifier/     the image classifier
     preprocess.py   B-scan to a fixed frame, one configurable knob per step
     data.py         caches, loaders, OCTDL and clinic mapping, class weights
@@ -45,13 +47,14 @@ ocular/         the package
     train.py        a fixed-length training loop, no selection on validation
     eval.py         accuracy, macro-F1, per-class recall
     explain.py      Grad-CAM over the classifier
-  rag/            the retrieval assistant: corpus, chunking, index, retrieval,
-                  rerank, generation, the agent tools and the two pipelines
+  rag/            the retrieval assistant: corpus, chunking, index, the Qdrant store,
+                  retrieval, rerank, generation, the agent tools and the two pipelines
 experiments/    the compute scripts and the result files they write
-scripts/        the data-build steps for the retrieval corpus and its indexes
+scripts/        the data-build steps for the retrieval corpus, its indexes and the Qdrant collection
 notebooks/      the presentation, read the result files and explain them
 app/            the FastAPI service and its web front-end over the classifier and the assistant
 tests/          the pytest suite, run on every push by .github/workflows/tests.yml
+Dockerfile      the application image; docker-compose.yml adds Qdrant and MLflow
 data/           local only, not tracked: raw images, caches, split.csv, corpus, indexes
 ```
 
@@ -239,6 +242,46 @@ interactive API documentation is at http://localhost:8000/docs. The embedding mo
 and the reranker are pulled from Hugging Face on first use and cached there, so the
 first question is slower than the rest. If the index is missing the application says so
 and repeats the download command rather than failing with a bare path.
+
+### Running with Docker
+
+`docker-compose.yml` runs the application as three containers: the FastAPI service,
+Qdrant as the vector store, and an MLflow server that records a trace of every scan
+analysis and every question. The checkpoint and the index are mounted from the host
+read-only and the key comes from `.env`, so the image holds code only. On the first
+run the index is loaded into Qdrant once, which takes a few seconds because the
+embeddings are copied rather than recomputed.
+
+```
+docker compose up -d --build
+docker compose run --rm app python scripts/build_qdrant.py
+```
+
+The application is then at http://localhost:8000, the Qdrant dashboard at
+http://localhost:6333/dashboard and the traces at http://localhost:5001, under the
+`ocular-assistant` experiment. Each question's trace shows the language model rounds
+with their token counts, the tool calls with their arguments, and the passages the
+search returned with their scores.
+
+The application uses Qdrant whenever `QDRANT_URL` is set, as it is in the compose
+file, and the in-memory index otherwise, which is what the notebooks and the tests
+use. In Qdrant each passage carries its dense embedding and a sparse BM25 vector, and
+hybrid search fuses the two rankings with the same reciprocal rank fusion as before.
+`experiments/compare_vector_stores.py` checks the move on the 50 evaluation questions,
+running the application's retrieval (50 hybrid candidates, reranked to five) on both
+stores. Both find the article each question was written from in the final five for
+all 50 questions, the two stores share 4.98 of the five passages on average, and they
+agree on the top passage every time. The per-question results are in
+`experiments/results/vector_store_parity.csv`.
+
+`scripts/build_qdrant.py` copies an index that was already built. A new index can
+instead be built straight into Qdrant, embedding the chunks and writing them to the
+collection without any index files on disk:
+
+```
+uv run python scripts/build_index.py --chunk-strategy fixed \
+    --embed-model abhinand/MedEmbed-base-v0.1 --device cpu --qdrant
+```
 
 ### Running the tests
 

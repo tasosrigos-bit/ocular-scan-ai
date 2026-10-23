@@ -1,0 +1,19 @@
+# Only the code goes into the image. Data, weights and anything patient-derived are
+# mounted at run time or stay on the host.
+.git
+.github
+.venv
+.env
+**/__pycache__
+*.pyc
+.DS_Store
+data
+experiments
+legacy
+notebooks
+report
+Reports
+tests
+*.pt
+*.pdf
+*.pptx

@@ -1,0 +1,55 @@
+# The whole application in three containers:
+#
+#   qdrant  the vector store holding the retrieval index      http://localhost:6333/dashboard
+#   mlflow  traces of every question the assistant answers     http://localhost:5001
+#   app     the FastAPI service and its web page               http://localhost:8000
+#
+# First run:
+#   docker compose up -d --build
+#   docker compose run --rm app python scripts/build_qdrant.py   # load the index once
+#
+# The checkpoint and the index are mounted from the host, read-only, and the Gemini
+# key comes from .env, so none of them is in the image.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.17.2
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --allowed-hosts "*"
+    ports:
+      # 5001 on the host, since macOS keeps 5000 for the AirPlay receiver.
+      - "5001:5000"
+    volumes:
+      - mlflow-data:/mlflow
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./experiments/convnext_final_e1.pt:/app/experiments/convnext_final_e1.pt:ro
+      - ./data/index:/app/data/index:ro
+      - hf-cache:/root/.cache/huggingface
+    depends_on:
+      - qdrant
+      - mlflow
+
+volumes:
+  qdrant-data:
+  mlflow-data:
+  hf-cache:

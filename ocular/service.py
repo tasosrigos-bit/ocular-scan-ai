@@ -6,17 +6,20 @@ Grad-CAM explanation and the literature-grounded assistant.
 
 :func:`analyse` classifies one uploaded B-scan and explains it. :func:`reply` answers
 a conversation with basic RAG over the selected retrieval configuration. The index
-and the chat model are loaded once per process and cached.
+and the chat model are loaded once per process and cached. Both functions are traced
+in MLflow when it is configured, see :mod:`ocular.observability`.
 """
 from __future__ import annotations
 
 import io
 import os
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
+from ocular import observability
 from ocular.classifier import explain
 from ocular.rag import index, llm, rerank, tools
 
@@ -64,7 +67,17 @@ over-claim."""
 
 @lru_cache(maxsize=1)
 def load_index():
-    """Load the selected retrieval index once per process."""
+    """Open the selected retrieval index once per process.
+
+    With ``QDRANT_URL`` set, the index is the Qdrant collection of the same name on
+    that server. Otherwise it is the in-memory index loaded from ``data/index``,
+    which is what the notebooks, the tests and a run without Docker use.
+    """
+    url = os.getenv("QDRANT_URL")
+    if url:
+        from ocular.rag.qdrant_store import QdrantStore
+
+        return QdrantStore.connect(url, INDEX)
     return index.load_index(index.INDEX_DIR / INDEX)
 
 
@@ -96,9 +109,11 @@ def analyse(path) -> dict:
         preprocessed grey-scale scan the model saw, and ``overlay``, the Grad-CAM map
         blended over that scan. Both images are arrays in ``[0, 1]``.
     """
-    label, confidence, probs = tools.predict_scan(path)
-    net, device = tools.load_classifier()
-    scan, cam = explain.explain_scan(net, path, tools.PREPROCESS, device=device)
+    with observability.span("analyse_scan", "CHAIN", {"file": Path(path).name}) as trace:
+        label, confidence, probs = tools.predict_scan(path)
+        net, device = tools.load_classifier()
+        scan, cam = explain.explain_scan(net, path, tools.PREPROCESS, device=device)
+        trace.set_outputs({"label": label, "confidence": confidence, "probs": probs})
     return {
         "label": label,
         "confidence": confidence,
@@ -206,28 +221,68 @@ def reply(
     status = on_status or (lambda text: None)
     write = on_text or (lambda text: None)
     bound = chat_model().bind_tools([search, classify])
-    for round_ in range(MAX_TOOL_ROUNDS):
-        # After a tool round the model may search again or write the answer; which
-        # one is only known once it replies, so the step is named for both.
-        status("Reading the question" if round_ == 0 else "Reviewing the results")
-        last = round_ == MAX_TOOL_ROUNDS - 1
-        model = chat_model().bind_tools([search, classify], tool_choice="none") if last else bound
-        # Streamed rather than invoked, so the answer's text reaches the caller as it
-        # is written. The chunks add up to the full message, tool calls included.
-        merged = None
-        for chunk in model.stream(convo):
-            merged = chunk if merged is None else merged + chunk
-            if piece := text(chunk.content):
-                write(piece)
-        answer = message_chunk_to_message(merged)
-        if not answer.tool_calls:
-            break
-        convo.append(answer)
-        for call in answer.tool_calls:
-            if call["name"] == "classify_scan":
-                status("Classifying the scan")
-            else:
-                status(f"Searching the literature for “{call['args'].get('query', '')}”")
-            result = toolmap[call["name"]].invoke(call["args"])
-            convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
-    return text(answer.content), sources_of(hits)
+    question = messages[-1]["content"] if messages else ""
+    with observability.span(
+        "answer_question", "AGENT",
+        {"question": question, "turns": len(messages), "scan_uploaded": scan_path is not None},
+    ) as trace:
+        for round_ in range(MAX_TOOL_ROUNDS):
+            # After a tool round the model may search again or write the answer; which
+            # one is only known once it replies, so the step is named for both.
+            status("Reading the question" if round_ == 0 else "Reviewing the results")
+            last = round_ == MAX_TOOL_ROUNDS - 1
+            model = chat_model().bind_tools([search, classify], tool_choice="none") if last else bound
+            with observability.span(
+                f"{llm.MODEL} round {round_ + 1}", "CHAT_MODEL",
+                {"messages": len(convo), "tools_allowed": not last},
+            ) as model_span:
+                # Streamed rather than invoked, so the answer's text reaches the caller
+                # as it is written. The chunks add up to the full message, tool calls
+                # and token counts included.
+                merged = None
+                for chunk in model.stream(convo):
+                    merged = chunk if merged is None else merged + chunk
+                    if piece := text(chunk.content):
+                        write(piece)
+                answer = message_chunk_to_message(merged)
+                model_span.set_outputs({
+                    "text": text(answer.content),
+                    "tool_calls": [{"name": c["name"], "args": c["args"]} for c in answer.tool_calls],
+                })
+                if answer.usage_metadata:
+                    model_span.set_attributes({
+                        key: answer.usage_metadata[key]
+                        for key in ("input_tokens", "output_tokens", "total_tokens")
+                        if key in answer.usage_metadata
+                    })
+            if not answer.tool_calls:
+                break
+            convo.append(answer)
+            for call in answer.tool_calls:
+                searching = call["name"] == "search_corpus"
+                if searching:
+                    status(f"Searching the literature for “{call['args'].get('query', '')}”")
+                else:
+                    status("Classifying the scan")
+                before = len(hits)
+                with observability.span(
+                    call["name"], "RETRIEVER" if searching else "TOOL", call["args"]
+                ) as tool_span:
+                    result = toolmap[call["name"]].invoke(call["args"])
+                    tool_span.set_outputs(_as_documents(hits[before:]) if searching else result)
+                convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        final = text(answer.content)
+        trace.set_outputs({"answer": final, "passages": len(hits)})
+    return final, sources_of(hits)
+
+
+def _as_documents(hits) -> list[dict]:
+    """Passages in the document shape the MLflow UI renders for a retriever span."""
+    return [
+        {
+            "id": f"{s['title']} - {s['section']}" if s["section"] else s["title"],
+            "page_content": s["text"],
+            "metadata": {"doi": s["doi"], "score": s["score"]},
+        }
+        for s in sources_of(hits)
+    ]

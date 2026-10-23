@@ -35,7 +35,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ocular import service
+from ocular import observability, service
 from ocular.rag import tools
 
 WEB = Path(__file__).parent / "web"
@@ -45,7 +45,11 @@ SUFFIXES = {".png", ".jpg", ".jpeg"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the classifier and the index at startup, so no request pays for it."""
+    """Load the classifier and the index at startup, so no request pays for it.
+
+    Tracing to MLflow starts here too when ``MLFLOW_TRACKING_URI`` is set.
+    """
+    observability.setup()
     UPLOADS.mkdir(exist_ok=True)
     tools.load_classifier()
     service.load_index()

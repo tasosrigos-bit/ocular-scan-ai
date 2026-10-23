@@ -191,15 +191,20 @@ def build_index(
         for chunk in chunks:
             fh.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")
 
-    manifest = {
+    manifest = make_manifest(model_name, embeddings, config_meta)
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    return out_dir
+
+
+def make_manifest(model_name: str, embeddings: np.ndarray, config_meta: dict | None = None) -> dict:
+    """Describe an index: its model, dimensions, size, build time and config."""
+    return {
         "model_name": model_name,
         "dim": int(embeddings.shape[1]),
-        "n_chunks": len(chunks),
+        "n_chunks": int(embeddings.shape[0]),
         "created_at": datetime.now(timezone.utc).isoformat(),
         **(config_meta or {}),
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    return out_dir
 
 
 def load_index(index_dir: Path | None = None) -> Index:

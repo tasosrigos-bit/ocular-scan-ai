@@ -158,14 +158,35 @@ def hybrid_search(
     """
     vector_ranked = _top_indices(_vector_scores(index, query), candidates)
     bm25_ranked = _top_indices(_bm25_scores(index, query), candidates)
+    fused = rrf([vector_ranked, bm25_ranked], k, rrf_k)
+    return [Hit(index.chunks[i], score, rank) for rank, (i, score) in enumerate(fused, 1)]
 
+
+def rrf(rankings: list[list[int]], k: int, rrf_k: int = 60) -> list[tuple[int, float]]:
+    """Fuse ranked lists of chunk ids with Reciprocal Rank Fusion.
+
+    Shared by the in-memory index and the Qdrant store, so both fuse identically.
+
+    Parameters
+    ----------
+    rankings : list of list of int
+        Each retriever's chunk ids, best first.
+    k : int
+        Number of fused results to return.
+    rrf_k : int, optional
+        The RRF smoothing constant. Defaults to 60.
+
+    Returns
+    -------
+    list of tuple of (int, float)
+        The ``k`` ids with the highest fused score, best first, with that score.
+    """
     fused: dict[int, float] = {}
-    for ranked in (vector_ranked, bm25_ranked):
+    for ranked in rankings:
         for rank, i in enumerate(ranked, 1):
             fused[i] = fused.get(i, 0.0) + 1.0 / (rrf_k + rank)
-
     order = sorted(fused, key=fused.get, reverse=True)[:k]
-    return [Hit(index.chunks[i], fused[i], rank) for rank, i in enumerate(order, 1)]
+    return [(i, fused[i]) for i in order]
 
 
 def retrieve(
@@ -192,6 +213,9 @@ def retrieve(
     list of Hit
         The retrieved chunks, best first.
     """
+    # A store that searches itself, such as the Qdrant store, takes the same knobs.
+    if hasattr(index, "search"):
+        return index.search(query, k=k, mode=mode, candidates=candidates)
     if mode == "vector":
         return vector_search(index, query, k)
     if mode == "bm25":
