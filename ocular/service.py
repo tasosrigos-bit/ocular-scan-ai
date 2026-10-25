@@ -26,8 +26,10 @@ from ocular import observability
 from ocular.classifier import explain
 from ocular.rag import index, llm, rerank, tools
 
-# The retrieval configuration chosen in the retrieval experiments, and the basic (non-agentic)
-# retrieval settings the search tool uses under the hood.
+# The in-memory index used without Qdrant (the notebooks, the tests, a run without
+# Docker): the configuration the 508-article evaluation chose. With Qdrant the app
+# searches the collection QDRANT_COLLECTION names, which docker-compose.yml sets to
+# the full-corpus configuration the retrieval experiments chose.
 INDEX = "fixed__MedEmbed-base-v0.1"
 
 # The most tool rounds one answer may take. A scan question needs two in sequence,
@@ -293,11 +295,11 @@ def reply(
     tools depend on each other: for a question about the scan the model classifies
     it first and only then searches the literature for what it found, so the two
     calls happen one after another rather than at once. ``search_corpus`` still
-    performs a single retrieval per call under the selected configuration (fixed
-    chunks, the biomedical embedder, hybrid retrieval, the gte reranker), so the
-    assistant stays basic rather than agentic and does not run the reformulate and
-    search again loop that the pipeline comparison in notebook 09 found brings no
-    gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
+    performs a single retrieval per call under the selected configuration (hybrid
+    retrieval and the gte reranker over the chosen index), so the assistant stays
+    basic rather than agentic and does not run the reformulate and search again
+    loop that both pipeline comparisons, in notebook 09 and in
+    ``experiments/run_basic_vs_agentic.py``, found brings no gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
     forbids tool calls, so the model always ends on a written answer rather than an
     unanswered tool call.
 

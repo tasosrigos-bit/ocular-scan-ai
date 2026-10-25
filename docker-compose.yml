@@ -41,9 +41,10 @@ services:
         required: false
     environment:
       QDRANT_URL: http://qdrant:6333
-      # The full-corpus index (8,535 articles). Remove this line to use the evaluated
-      # 508-article index, fixed__MedEmbed-base-v0.1.
-      QDRANT_COLLECTION: fixed__MedEmbed-base-v0.1__corpus_full
+      # The full-corpus configuration the retrieval experiments chose: section chunks
+      # embedded with EmbeddingGemma, a gated model, so .env needs HF_TOKEN. Remove
+      # this line to use the evaluated 508-article index, fixed__MedEmbed-base-v0.1.
+      QDRANT_COLLECTION: section__embeddinggemma-300m__corpus_full
       MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./experiments/convnext_final_e1.pt:/app/experiments/convnext_final_e1.pt:ro
