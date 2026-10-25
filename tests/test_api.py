@@ -23,7 +23,7 @@ SOURCE = {"title": "Article A", "section": "Results", "doi": None, "license": "C
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "UPLOADS", tmp_path)
-    monkeypatch.setattr(service, "analyse", lambda path: {
+    monkeypatch.setattr(service, "analyse", lambda path, **kwargs: {
         "label": "DME", "confidence": 0.95, "probs": PROBS,
         "scan": np.zeros((256, 384)), "overlay": np.zeros((256, 384, 3)),
     })
@@ -60,7 +60,7 @@ def test_predict_rejects_other_file_types(client):
 
 
 def test_predict_reports_and_cleans_up_an_unreadable_scan(client, monkeypatch, tmp_path):
-    def broken(path):
+    def broken(path, **kwargs):
         raise OSError("cannot identify image file")
 
     monkeypatch.setattr(service, "analyse", broken)
@@ -103,6 +103,25 @@ def test_chat_passes_the_session_to_the_assistant(client, monkeypatch):
     session = uuid.uuid4()
     _chat(client, session_id=str(session))
     assert seen["session_id"] == session.hex
+
+
+def test_predict_passes_the_session_to_the_analysis(client, monkeypatch):
+    seen = {}
+
+    def analyse(path, **kwargs):
+        seen.update(kwargs)
+        raise OSError("stop after the call")
+
+    monkeypatch.setattr(service, "analyse", analyse)
+    session = uuid.uuid4()
+    client.post("/api/predict", files={"file": ("scan.png", b"x", "image/png")},
+                data={"session_id": str(session)})
+    assert seen["session_id"] == session.hex
+
+
+def test_the_page_is_revalidated_on_each_load(client):
+    assert client.get("/app.js").headers["cache-control"] == "no-cache"
+    assert "cache-control" not in client.get("/api/health").headers
 
 
 def test_chat_rejects_a_malformed_session_id(client):

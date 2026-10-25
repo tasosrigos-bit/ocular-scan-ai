@@ -151,6 +151,7 @@ async function handleFile(file) {
 
   const body = new FormData();
   body.append('file', file);
+  body.append('session_id', state.sessionId);
   try {
     const res = await fetch('/api/predict', { method: 'POST', body });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'The scan could not be analysed.');

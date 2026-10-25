@@ -99,7 +99,7 @@ def chat_model():
     )
 
 
-def analyse(path) -> dict:
+def analyse(path, session_id=None) -> dict:
     """Classify one OCT B-scan and explain the prediction with Grad-CAM.
 
     The scan that is explained is the same preprocessed scan that was classified,
@@ -109,6 +109,8 @@ def analyse(path) -> dict:
     ----------
     path : str or pathlib.Path
         Path to the B-scan image.
+    session_id : str, optional
+        The conversation the scan belongs to, recorded on its trace.
 
     Returns
     -------
@@ -118,6 +120,7 @@ def analyse(path) -> dict:
         blended over that scan. Both images are arrays in ``[0, 1]``.
     """
     with observability.span("analyse_scan", "CHAIN", {"file": Path(path).name}) as trace:
+        observability.set_session(session_id)
         label, confidence, probs = tools.predict_scan(path)
         net, device = tools.load_classifier()
         scan, cam = explain.explain_scan(net, path, tools.PREPROCESS, device=device)

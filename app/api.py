@@ -30,7 +30,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -57,6 +57,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Ocular Scan AI", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def revalidate_page(request: Request, call_next):
+    # The browser checks the page and its script for a newer version on each load,
+    # so an update reaches it at once instead of after a cached copy expires.
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 class Prediction(BaseModel):
@@ -123,7 +133,7 @@ def health() -> dict:
 # The endpoints are plain functions rather than coroutines, because the model and
 # the language model calls block; FastAPI runs such endpoints in a thread pool.
 @app.post("/api/predict", response_model=Prediction)
-def predict(file: UploadFile) -> Prediction:
+def predict(file: UploadFile, session_id: uuid.UUID | None = Form(None)) -> Prediction:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUFFIXES:
         raise HTTPException(415, "Upload a PNG or JPEG B-scan.")
@@ -131,7 +141,7 @@ def predict(file: UploadFile) -> Prediction:
     path = UPLOADS / f"{scan_id}{suffix}"
     path.write_bytes(file.file.read())
     try:
-        result = service.analyse(path)
+        result = service.analyse(path, session_id=session_id.hex if session_id else None)
     except Exception:
         path.unlink(missing_ok=True)
         raise HTTPException(422, "The file could not be read as an OCT B-scan.")
