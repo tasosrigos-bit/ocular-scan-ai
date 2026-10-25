@@ -1,5 +1,7 @@
 # The whole application in three containers:
 #
+# Every port is bound to 127.0.0.1, so only this machine can reach them.
+#
 #   qdrant  the vector store holding the retrieval index      http://localhost:6333/dashboard
 #   mlflow  traces of every question the assistant answers     http://localhost:5001
 #   app     the FastAPI service and its web page               http://localhost:8000
@@ -14,38 +16,61 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.20.0
     ports:
-      - "6333:6333"
+      # Qdrant has no login, so only this machine reaches it; the app uses qdrant:6333.
+      - "127.0.0.1:6333:6333"
     volumes:
       - qdrant-data:/qdrant/storage
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v3.17.2
+    build: ./mlflow
+    # With a login (basic-auth), reachable only from this machine and the app
+    # container. The server also runs the registered LLM judges on new traces,
+    # through its AI Gateway, which keeps the OpenAI key encrypted in its database
+    # under MLFLOW_CRYPTO_KEK_PASSPHRASE; scripts/register_monitoring.py stores it.
     command: >
       mlflow server --host 0.0.0.0 --port 5000
+      --app-name basic-auth
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --artifacts-destination /mlflow/artifacts
-      --allowed-hosts "*"
+      --allowed-hosts "localhost:5001,127.0.0.1:5001,mlflow:5000,localhost:5000,127.0.0.1:5000"
       --workers 1
+    environment:
+      MLFLOW_AUTH_CONFIG_PATH: /etc/mlflow/basic_auth.ini
+      MLFLOW_AUTH_ADMIN_PASSWORD: ${MLFLOW_TRACKING_PASSWORD:?set MLFLOW_TRACKING_PASSWORD in .env}
+      MLFLOW_FLASK_SERVER_SECRET_KEY: ${MLFLOW_FLASK_SERVER_SECRET_KEY:?set MLFLOW_FLASK_SERVER_SECRET_KEY in .env}
+      # The background judge jobs call the server's own gateway, which needs a login;
+      # scheduled runs carry no user, so they sign in as the admin.
+      MLFLOW_TRACKING_USERNAME: admin
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD}
+      # They would call http://0.0.0.0:5000, which --allowed-hosts rejects.
+      MLFLOW_GATEWAY_URI: http://localhost:5000
+      MLFLOW_CRYPTO_KEK_PASSPHRASE: ${MLFLOW_CRYPTO_KEK_PASSPHRASE:?set MLFLOW_CRYPTO_KEK_PASSPHRASE in .env}
     ports:
-      # 5001 on the host, since macOS keeps 5000 for the AirPlay receiver.
-      - "5001:5000"
+      # 5001 on the host, since macOS keeps 5000 for the AirPlay receiver, and on
+      # 127.0.0.1 only, so other machines on the network cannot reach it.
+      - "127.0.0.1:5001:5000"
     volumes:
       - mlflow-data:/mlflow
+      - ./mlflow/basic_auth.ini:/etc/mlflow/basic_auth.ini:ro
 
   app:
     build: .
     ports:
-      - "8000:8000"
-    env_file:
-      - path: .env
-        required: false
+      - "127.0.0.1:8000:8000"
+    # Only what the app needs, not the whole .env: the OpenAI key and the MLflow
+    # admin login and server secrets stay out of this container.
     environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY in .env}
+      HF_TOKEN: ${HF_TOKEN:-}
       QDRANT_URL: http://qdrant:6333
       # The full-corpus configuration the retrieval experiments chose: section chunks
       # embedded with EmbeddingGemma, a gated model, so .env needs HF_TOKEN. Remove
       # this line to use the evaluated 508-article index, fixed__MedEmbed-base-v0.1.
       QDRANT_COLLECTION: section__embeddinggemma-300m__corpus_full
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Its own MLflow user, which may only write traces to ocular-assistant.
+      MLFLOW_TRACKING_USERNAME: app
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_APP_PASSWORD:?set MLFLOW_APP_PASSWORD in .env}
     volumes:
       - ./experiments/convnext_final_e1.pt:/app/experiments/convnext_final_e1.pt:ro
       - ./data/index:/app/data/index:ro
