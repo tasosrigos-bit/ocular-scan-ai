@@ -279,14 +279,29 @@ Then give the sentences your answer comes from. First, in sentence_rules, restat
 rules in your own words. Then, in answer_sentences, copy the one to three sentences of the
 passage that state your answer. Copy each one whole and exactly as it appears, without
 changing, shortening or joining them. Include only sentences that state the answer, not
-sentences that give background, describe a patient or report a study's numbers."""
+sentences that give background, describe a patient or report a study's numbers.
 
-# The full-corpus prompt is the original with four additions, made after a trial
-# run, and the original stays as it was so the first question set is reproducible.
+Before you set relevant, check the answer sentences you copied. If the answer rests on any sentence that
+reports one patient or case, or what one study's authors did, observed or found, or one
+centre's own practice, the passage does not support a general question: set relevant=false
+and leave question and answer empty. Only sentences that state accepted clinical knowledge,
+or a recommendation offered as general guidance, can support a question."""
+
+# The full-corpus prompt is the original with five additions, made after trial
+# runs, and the original stays as it was so the first question set is reproducible.
 # The additions require a general ophthalmology question rather than one built on
 # the article's own case, an answer grounded only in the passage (the correctness
 # judge compares answers with it), the exclusion of one health system's care
-# pathways, and a single question rather than two joined together.
+# pathways, a single question rather than two joined together, and the exclusion
+# of passages whose answer reports one patient, one study's own work or one
+# centre's routine, which the model checks again on the sentences it copied.
+_ONE_SOURCE = (
+    "- one patient's or one case's course: what happened to them, what they were given or why\n"
+    "  they were or were not treated (for example \"he did not receive surgery because ...\")\n"
+    "- what one study's authors did, observed or found, or one centre's own routine, even when it\n"
+    "  is worded as a general statement (for example \"we performed ...\", \"we observed that ...\",\n"
+    "  \"common complications included ...\" in a study's own results)\n"
+)
 _HEALTH_SYSTEM = (
     "- referral pathways, care settings, follow-up arrangements or service organisation\n"
     "  specific to one health system\n"
@@ -303,10 +318,11 @@ contain, even if they are true."""
 
 _FULL_PROMPT = (
     _PROMPT
-    .replace("- anything a clinician would not consult", _HEALTH_SYSTEM + "- anything a clinician would not consult")
+    .replace("- anything a clinician would not consult", _ONE_SOURCE + _HEALTH_SYSTEM + "- anything a clinician would not consult")
     .replace("the question must stand on its own.", "the question must stand on its own." + _GENERAL)
 )
-assert _FULL_PROMPT.count(_HEALTH_SYSTEM) == 1 and _FULL_PROMPT.count(_GENERAL) == 1
+assert _FULL_PROMPT.count(_ONE_SOURCE) == 1 and _FULL_PROMPT.count(_HEALTH_SYSTEM) == 1
+assert _FULL_PROMPT.count(_GENERAL) == 1
 
 _LABELLED_PROMPT = _FULL_PROMPT.replace("\n\nPASSAGE:", _LABELS + "\n\nPASSAGE:")
 
@@ -333,6 +349,7 @@ USAGE: Counter = Counter()
 # Grading and writing need no long deliberation, and a reasoning model bills its
 # hidden reasoning as output tokens, so the effort is kept low to keep the set cheap.
 QUESTION_REASONING = "low"
+OPENAI_TIMEOUT = 60.0
 
 
 def _ask_openai(
@@ -341,7 +358,9 @@ def _ask_openai(
     """Ask an OpenAI model for one labelled question, as a validated object."""
     from openai import OpenAI
 
-    client = OpenAI()
+    # A reply takes seconds; the client's default 10-minute timeout let one stalled
+    # request hold up a whole run, so a stalled request is retried after a minute.
+    client = OpenAI(timeout=OPENAI_TIMEOUT)
     for attempt in range(retries):
         try:
             completion = client.chat.completions.parse(
@@ -741,13 +760,16 @@ SPLIT = {"train": 10, "validation": 40, "test": 25}
 def split_questions(
     questions: list[Question], sizes: dict[str, int] | None = None, seed: int = config.SEED
 ) -> list[Question]:
-    """Assign each question to train, validation or test, stratified by subspecialty.
+    """Assign each question to train, validation or test, stratified by category and subspecialty.
 
-    The questions are ordered by subspecialty, shuffled within each, and dealt into
-    the splits in proportion along that order, so every subspecialty is spread over
-    the three splits roughly as the whole set is. The default sizes give prompt
-    optimisation 20 percent of the questions it sees to learn from and 80 percent
-    to select on, and hold out a third of the set that it never sees.
+    The questions are ordered by clinical category, then subspecialty, shuffled
+    within each, and dealt into the splits in proportion along that order, so every
+    category is spread over the three splits roughly as the whole set is. Pairs of
+    questions in different splits are then swapped while a swap brings both the
+    category and the subspecialty counts of every split closer to their shares of
+    the whole set. The default sizes give prompt optimisation 20 percent of the
+    questions it sees to learn from and 80 percent to select on, and hold out a
+    third of the set that it never sees.
 
     Returns
     -------
@@ -755,16 +777,41 @@ def split_questions(
         The same questions with ``split`` set, in their original order.
     """
     sizes = sizes or SPLIT
-    if sum(sizes.values()) != len(questions):
-        raise ValueError(f"split sizes {sizes} do not add up to {len(questions)} questions")
+    n = len(questions)
+    if sum(sizes.values()) != n:
+        raise ValueError(f"split sizes {sizes} do not add up to {n} questions")
     rng = random.Random(seed)
-    order = sorted(questions, key=lambda q: (q.subspecialty, rng.random()))
-    # Deal labels evenly: position i goes to the split whose running share lags
+    order = sorted(range(n), key=lambda i: (questions[i].category, questions[i].subspecialty, rng.random()))
+    # Deal labels evenly: position k goes to the split whose running share lags
     # furthest behind its target share.
     dealt: Counter = Counter()
-    labels: dict[str, str] = {}
-    for i, q in enumerate(order, 1):
-        name = max(sizes, key=lambda s: sizes[s] / len(questions) * i - dealt[s])
+    labels: list[str] = [""] * n
+    for k, i in enumerate(order, 1):
+        name = max(sizes, key=lambda s: sizes[s] / n * k - dealt[s])
         dealt[name] += 1
-        labels[q.id] = name
-    return [q.model_copy(update={"split": labels[q.id]}) for q in questions]
+        labels[i] = name
+
+    totals = {key: Counter(getattr(q, key) for q in questions) for key in ("category", "subspecialty")}
+
+    def imbalance() -> float:
+        out = 0.0
+        for key, total in totals.items():
+            for name, size in sizes.items():
+                got = Counter(getattr(q, key) for q, s in zip(questions, labels) if s == name)
+                out += sum(abs(got[v] - c * size / n) for v, c in total.items())
+        return out
+
+    best, improved = imbalance(), True
+    while improved:
+        improved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                if labels[i] == labels[j]:
+                    continue
+                labels[i], labels[j] = labels[j], labels[i]
+                now = imbalance()
+                if now < best - 1e-9:
+                    best, improved = now, True
+                else:
+                    labels[i], labels[j] = labels[j], labels[i]
+    return [q.model_copy(update={"split": s}) for q, s in zip(questions, labels)]

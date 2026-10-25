@@ -98,6 +98,20 @@ def test_the_split_has_the_planned_sizes_and_spreads_each_subspecialty():
         questions.split_questions(qs[:10])
 
 
+def test_the_split_spreads_each_category_too():
+    # Categories cycle within each subspecialty, so balancing on subspecialty alone
+    # could still leave a category nearly missing from the test split.
+    subs = ["retina"] * 30 + ["glaucoma"] * 15 + ["cornea and external disease"] * 15 + ["uveitis and ocular inflammation"] * 15
+    cats = [questions.CATEGORIES[i % 5] if i < 45 else "management" for i in range(75)]
+    qs = [questions.Question(id=f"f{i:03d}", question=f"q{i}", ground_truth="a", source_doc_id=f"PMC{i}",
+                             source_section="", subspecialty=s, category=c) for i, (s, c) in enumerate(zip(subs, cats))]
+    split = questions.split_questions(qs)
+    for cat, total in Counter(cats).items():
+        got = Counter(q.split for q in split if q.category == cat)
+        for name, size in questions.SPLIT.items():
+            assert abs(got[name] - total * size / 75) <= 1.5, (cat, name, got)
+
+
 def test_the_original_question_file_still_loads(tmp_path):
     path = tmp_path / "old.jsonl"
     path.write_text('{"id":"q000","question":"Q?","ground_truth":"A","source_doc_id":"PMC1","source_section":"Intro"}\n')
