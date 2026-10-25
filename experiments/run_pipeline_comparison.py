@@ -10,8 +10,8 @@ model calls) can be weighed against any gain in the metrics.
 
 Usage
 -----
-    python experiments/run_phaseb.py               # both pipelines, all questions
-    python experiments/run_phaseb.py --limit 10    # a quick pass
+    python experiments/run_pipeline_comparison.py               # both pipelines, all questions
+    python experiments/run_pipeline_comparison.py --limit 10    # a quick pass
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from ocular.rag import eval_rag, index, pipeline, questions, rerank
 
-RESULTS = Path(__file__).resolve().parent / "results" / "rag_eval_phaseb.csv"
+RESULTS = Path(__file__).resolve().parent / "results" / "rag_eval_pipelines.csv"
 
 # The retrieval configuration selected in the retrieval experiments.
 INDEX = "fixed__MedEmbed-base-v0.1"

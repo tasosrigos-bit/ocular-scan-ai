@@ -82,7 +82,7 @@ The retrieval assistant:
 | Indexes | `python scripts/build_all_indexes.py` | `data/index/` | notebooks 07, 08 |
 | Eval questions | `python scripts/build_questions.py --n 50` | `data/eval/questions.jsonl` | notebook 09 |
 | Retrieval eval | `python experiments/run_rag_eval.py` | `experiments/results/rag_eval.csv` | notebook 09 |
-| Answering eval | `python experiments/run_phaseb.py` | `experiments/results/rag_eval_phaseb.csv` | notebook 09 |
+| Answering eval | `python experiments/run_pipeline_comparison.py` | `experiments/results/rag_eval_pipelines.csv` | notebook 09 |
 
 The preprocessing search and the model grid are screens. They run on a class-balanced
 subsample of the training set to rank configurations against one another, so their
