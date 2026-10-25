@@ -91,7 +91,7 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
     assert question.inputs["earlier_turns"] == []
     assert question.outputs["answer"] == "Drusen are deposits [1]."
     assert question.outputs["passages"].startswith("[1] (Article A - Results)")
-    assert question.tags == {"searched": "true"}
+    assert question.tags == {"searched": "true", "prompt_version": "unknown"}
     assert first_round.outputs["tool_calls"] == [
         {"name": "search_corpus", "args": {"query": "drusen deposits"}}
     ]
@@ -103,3 +103,38 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
         "mlflow.llm.provider": "gemini",
         "mlflow.chat.tokenUsage": {"input_tokens": 120, "output_tokens": 8, "total_tokens": 128},
     }
+
+
+def _registry(monkeypatch, versions):
+    calls = []
+
+    class Client:
+        def search_prompt_versions(self, name):
+            calls.append(name)
+            if versions is None:
+                raise ConnectionError("registry unreachable")
+            return [SimpleNamespace(version=v, template=t) for v, t in versions]
+
+    monkeypatch.setitem(sys.modules, "mlflow", SimpleNamespace(MlflowClient=Client))
+    monkeypatch.setattr(observability, "_enabled", True)
+    monkeypatch.setattr(observability, "_prompt_versions", {})
+    return calls
+
+
+def test_the_prompt_version_is_the_registered_one_with_the_same_text(monkeypatch):
+    calls = _registry(monkeypatch, [(1, "old prompt"), (2, "current prompt")])
+    assert observability.prompt_version("p", "current prompt") == "2"
+    assert observability.prompt_version("p", "current prompt") == "2"
+    assert calls == ["p"]  # found once, then remembered
+
+
+def test_an_edited_prompt_is_unregistered_until_registered(monkeypatch):
+    calls = _registry(monkeypatch, [(1, "old prompt")])
+    assert observability.prompt_version("p", "edited prompt") == "unregistered"
+    assert observability.prompt_version("p", "edited prompt") == "unregistered"
+    assert len(calls) == 2  # asked again, so a later registration is picked up
+
+
+def test_a_registry_outage_leaves_the_prompt_version_unknown(monkeypatch):
+    _registry(monkeypatch, None)
+    assert observability.prompt_version("p", "current prompt") == "unknown"

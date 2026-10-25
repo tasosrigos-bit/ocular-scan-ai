@@ -37,6 +37,8 @@ INDEX = "fixed__MedEmbed-base-v0.1"
 # the answer, so the cap sits a little above that and forces a text answer on the
 # last round rather than letting the model spend it on another tool call.
 MAX_TOOL_ROUNDS = 4
+# The name of the system prompt in the MLflow Prompt Registry.
+PROMPT_NAME = "ocular-assistant-system"
 # Earlier messages recorded with each question's trace, for the judges.
 EARLIER_TURNS = 4
 
@@ -401,7 +403,10 @@ def reply(
             "answer": final,
             "passages": tools.format_passages(hits) if searched else "No literature search was run.",
         })
-        observability.tag_trace({"searched": str(searched).lower()})
+        observability.tag_trace({
+            "searched": str(searched).lower(),
+            "prompt_version": observability.prompt_version(PROMPT_NAME, SYSTEM),
+        })
     return final, sources_of(hits)
 
 

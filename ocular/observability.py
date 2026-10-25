@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 EXPERIMENT = "ocular-assistant"
 
 _enabled = False
+_prompt_versions: dict[str, str] = {}
 
 
 def setup() -> bool:
@@ -68,6 +69,33 @@ def set_session(session_id: str | None) -> None:
         import mlflow
 
         mlflow.update_current_trace(session_id=session_id)
+
+
+def prompt_version(name: str, text: str) -> str:
+    """The Prompt Registry version of ``name`` whose text is ``text``.
+
+    The prompt itself lives in the code, so the application never depends on the
+    registry to run. Its versions are registered by ``scripts/register_monitoring.py``,
+    and this looks up which one the running code holds, so each trace records it.
+    A text not registered yet is ``"unregistered"``, and looked up again on the
+    next call; ``"unknown"`` means the registry could not be asked.
+    """
+    if not _enabled:
+        return "unknown"
+    if text in _prompt_versions:
+        return _prompt_versions[text]
+    try:
+        import mlflow
+
+        versions = mlflow.MlflowClient().search_prompt_versions(name)
+    except Exception as exc:  # a registry outage must not take the application down
+        log.warning("Prompt version of %s unknown: %s", name, exc)
+        return "unknown"
+    match = next((str(v.version) for v in versions if v.template == text), None)
+    if match is None:
+        return "unregistered"
+    _prompt_versions[text] = match
+    return match
 
 
 def tag_trace(tags: dict[str, str]) -> None:

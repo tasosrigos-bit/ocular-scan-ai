@@ -26,7 +26,11 @@ can be charted over time. The server runs judges only through its AI Gateway, so
 the script first sets up a gateway endpoint, ``judge``: it stores
 ``OPENAI_API_KEY`` from ``.env`` as a gateway secret, which the server keeps
 encrypted under ``MLFLOW_CRYPTO_KEK_PASSPHRASE``, and points the endpoint at the
-judge model. Rerunning replaces the judges and the endpoint's key and model, for
+judge model. It also registers the assistant's system prompt, from
+``ocular/service.py``, in the Prompt Registry as ``ocular-assistant-system``, adding
+a version only when the text has changed, and lets the app's MLflow user read it:
+the app tags every trace with the version it runs, so scores can be compared
+across prompt changes. Rerunning replaces the judges and the endpoint's key and model, for
 example to change the sampling rate or rotate the key. The script signs in with
 ``MLFLOW_TRACKING_USERNAME`` and ``MLFLOW_TRACKING_PASSWORD`` from ``.env``. Usage::
 
@@ -94,6 +98,35 @@ def ensure_endpoint() -> None:
     )
 
 
+def ensure_prompt(tracking_uri: str) -> str:
+    """Register the system prompt if its text is new, and let the app read it. Returns its version."""
+    import mlflow
+    import requests
+
+    from ocular import service
+
+    name, text = service.PROMPT_NAME, service.SYSTEM
+    versions = []
+    try:
+        versions = mlflow.MlflowClient().search_prompt_versions(name)
+    except Exception:  # the prompt does not exist yet
+        pass
+    version = next((v for v in versions if v.template == text), None)
+    if version is None:
+        version = mlflow.genai.register_prompt(
+            name=name, template=text, commit_message="System prompt of ocular/service.py"
+        )
+    res = requests.post(
+        f"{tracking_uri}/api/3.0/mlflow/users/permissions/grant",
+        auth=(os.environ["MLFLOW_TRACKING_USERNAME"], os.environ["MLFLOW_TRACKING_PASSWORD"]),
+        json={"username": "app", "resource_type": "prompt", "resource_id": name, "permission": "READ"},
+        timeout=30,
+    )
+    if not res.ok and "RESOURCE_ALREADY_EXISTS" not in res.text:
+        print(f"  could not let the app read the prompt ({res.status_code}): {res.text[:200]}")
+    return str(version.version)
+
+
 def judges():
     """Each judge with the traces it scores."""
     from mlflow.genai.scorers import Guidelines, RelevanceToQuery, RetrievalGroundedness, RetrievalRelevance
@@ -119,6 +152,7 @@ def main() -> None:
     mlflow.set_tracking_uri(args.tracking_uri)
     experiment_id = mlflow.set_experiment(observability.EXPERIMENT).experiment_id
     ensure_endpoint()
+    print(f"  system prompt: version {ensure_prompt(args.tracking_uri)}")
     # Every judge on the experiment is this script's, so all are replaced, including
     # any it no longer registers.
     for s in list_scorers(experiment_id=experiment_id):

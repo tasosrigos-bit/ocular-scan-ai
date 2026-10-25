@@ -12,7 +12,7 @@ dependencies = [
     "langgraph>=1.2.11",
     "lxml>=6.1.2",
     "matplotlib>=3.11.1",
-    "mlflow-tracing>=3.17.2",
+    "mlflow==3.17.2",
     "numpy>=2.5.2",
     "pandas>=3.0.5",
     "pillow>=12.3.0",
@@ -49,7 +49,6 @@ dev = [
     "pytest>=9.1.1",
 ]
 eval = [
-    "mlflow==3.17.2",
     "openai>=3.37.0",
 ]
 

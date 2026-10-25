@@ -3113,7 +3113,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "lxml" },
     { name = "matplotlib" },
-    { name = "mlflow-tracing" },
+    { name = "mlflow" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pillow" },
@@ -3137,7 +3137,6 @@ dev = [
     { name = "pytest" },
 ]
 eval = [
-    { name = "mlflow" },
     { name = "openai" },
 ]
 
@@ -3150,7 +3149,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "lxml", specifier = ">=6.1.2" },
     { name = "matplotlib", specifier = ">=3.11.1" },
-    { name = "mlflow-tracing", specifier = ">=3.17.2" },
+    { name = "mlflow", specifier = "==3.17.2" },
     { name = "numpy", specifier = ">=2.5.2" },
     { name = "pandas", specifier = ">=3.0.5" },
     { name = "pillow", specifier = ">=12.3.0" },
@@ -3173,10 +3172,7 @@ dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "pytest", specifier = ">=9.1.1" },
 ]
-eval = [
-    { name = "mlflow", specifier = "==3.17.2" },
-    { name = "openai", specifier = ">=3.37.0" },
-]
+eval = [{ name = "openai", specifier = ">=3.37.0" }]
 
 [[package]]
 name = "openai"
