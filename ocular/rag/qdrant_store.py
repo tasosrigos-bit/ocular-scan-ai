@@ -33,7 +33,7 @@ from dataclasses import asdict
 import numpy as np
 
 from ocular.rag.chunk import Chunk
-from ocular.rag.index import Index, load_embedder, tokenize
+from ocular.rag.index import Index, load_embedder, query_text, tokenize
 from ocular.rag.retrieve import MODES, Hit, rrf
 
 # The BM25Okapi defaults of rank_bm25, which the in-memory index uses.
@@ -73,6 +73,53 @@ def query_vector(tokens: list[str]):
     return models.SparseVector(indices=list(weights), values=list(weights.values()))
 
 
+def _create(client, collection: str, dim: int, meta: dict) -> None:
+    """Create a collection with the dense and the BM25 vectors and the manifest.
+
+    The dense vectors and the payloads are kept on disk and memory-mapped, so
+    several collections of a few hundred thousand passages fit alongside the
+    embedding model on a 16 GB machine; the operating system caches what is read.
+    """
+    from qdrant_client import models
+
+    client.create_collection(
+        collection,
+        vectors_config={
+            "dense": models.VectorParams(size=dim, distance=models.Distance.COSINE, on_disk=True)
+        },
+        sparse_vectors_config={"bm25": models.SparseVectorParams(modifier=models.Modifier.IDF)},
+        on_disk_payload=True,
+        metadata={**meta, "bm25": {"k1": K1, "b": B}},
+    )
+
+
+def _avgdl(chunks: list[Chunk]) -> float:
+    """The mean passage length in tokens, the one corpus statistic BM25 needs up front.
+
+    Counted passage by passage rather than by keeping every token list, which for a
+    few hundred thousand passages would hold gigabytes of small strings in memory.
+    """
+    return sum(len(tokenize(c.text)) for c in chunks) / len(chunks)
+
+
+def _upsert(client, collection: str, rows, chunks, embeddings, avgdl: float) -> None:
+    """Write one batch of points, ``embeddings`` aligned with ``rows``."""
+    from qdrant_client import models
+
+    client.upsert(
+        collection,
+        points=[
+            models.PointStruct(
+                id=i,
+                vector={"dense": vec.tolist(), "bm25": doc_vector(tokenize(chunks[i].text), avgdl)},
+                payload=asdict(chunks[i]),
+            )
+            for i, vec in zip(rows, embeddings)
+        ],
+        wait=True,
+    )
+
+
 def write_collection(
     client,
     collection: str,
@@ -108,40 +155,89 @@ def write_collection(
     int
         The number of points written.
     """
-    from qdrant_client import models
-
     if client.collection_exists(collection):
         client.delete_collection(collection)
-    client.create_collection(
-        collection,
-        vectors_config={
-            "dense": models.VectorParams(
-                size=int(embeddings.shape[1]), distance=models.Distance.COSINE
-            )
-        },
-        sparse_vectors_config={"bm25": models.SparseVectorParams(modifier=models.Modifier.IDF)},
-        metadata={**meta, "bm25": {"k1": K1, "b": B}},
-    )
-    tokens = [tokenize(c.text) for c in chunks]
-    avgdl = float(np.mean([len(t) for t in tokens]))
+    _create(client, collection, int(embeddings.shape[1]), meta)
+    avgdl = _avgdl(chunks)
     for start in range(0, len(chunks), batch):
         rows = range(start, min(start + batch, len(chunks)))
-        client.upsert(
-            collection,
-            points=[
-                models.PointStruct(
-                    id=i,
-                    vector={
-                        "dense": embeddings[i].tolist(),
-                        "bm25": doc_vector(tokens[i], avgdl),
-                    },
-                    payload=asdict(chunks[i]),
-                )
-                for i in rows
-            ],
-            wait=True,
-        )
+        _upsert(client, collection, rows, chunks, embeddings[start:start + batch], avgdl)
     return len(chunks)
+
+
+def stream_collection(
+    client,
+    collection: str,
+    chunks: list[Chunk],
+    embed,
+    meta: dict,
+    batch: int = 256,
+    progress=None,
+    as_text=None,
+) -> int:
+    """Embed chunks batch by batch straight into Qdrant, resuming a partial build.
+
+    For a corpus too large to embed in one sitting. Each batch is embedded and
+    written before the next, so nothing is held in memory and nothing is written to
+    disk, and every finished batch survives an interruption. Points are written in
+    id order, so when the collection already exists for the same chunks and model,
+    the build continues from the number of points it holds.
+
+    Parameters
+    ----------
+    client : qdrant_client.QdrantClient
+        A connected client.
+    collection : str
+        Collection name.
+    chunks : list of Chunk
+        The passages, in a fixed order that becomes their point ids.
+    embed : callable
+        Maps a list of texts to normalised embeddings, e.g. from
+        :func:`~ocular.rag.index.load_embedder`.
+    meta : dict
+        The index manifest, naming the model as ``model_name`` and the dimensions as
+        ``dim``. An existing collection whose manifest disagrees on the model or the
+        number of chunks is not resumed but refused.
+    batch : int, optional
+        Chunks embedded and written per step.
+    progress : callable, optional
+        Called with the number of chunks already in the collection before the
+        first batch, then with the number finished after each batch.
+    as_text : callable, optional
+        Maps a chunk to the text that is embedded, e.g.
+        :func:`~ocular.rag.index.passage_text` for a model trained with passage
+        labels. Defaults to the chunk's own text. The payload always keeps the
+        plain chunk.
+
+    Returns
+    -------
+    int
+        The number of points in the collection when done.
+    """
+    start = 0
+    if client.collection_exists(collection):
+        have = client.get_collection(collection).config.metadata or {}
+        if (have.get("model_name"), have.get("n_chunks")) != (meta["model_name"], len(chunks)):
+            raise ValueError(
+                f"collection {collection!r} holds a different index "
+                f"({have.get('model_name')}, {have.get('n_chunks')} chunks); "
+                "delete it or choose another name"
+            )
+        start = client.count(collection, exact=True).count
+        print(f"resuming {collection!r} at chunk {start:,} of {len(chunks):,}", flush=True)
+    else:
+        _create(client, collection, meta["dim"], {**meta, "n_chunks": len(chunks)})
+
+    avgdl = _avgdl(chunks)
+    if progress:
+        progress(start)
+    for at in range(start, len(chunks), batch):
+        rows = range(at, min(at + batch, len(chunks)))
+        vectors = embed([(as_text or (lambda c: c.text))(chunks[i]) for i in rows])
+        _upsert(client, collection, rows, chunks, vectors, avgdl)
+        if progress:
+            progress(rows[-1] + 1)
+    return client.count(collection, exact=True).count
 
 
 def build_collection(index: Index, client, collection: str, batch: int = 256) -> int:
@@ -185,6 +281,7 @@ class QdrantStore:
 
     def embed_query(self, text: str) -> np.ndarray:
         """Encode a query with the model that embedded the collection."""
+        text = query_text(self.model_name, text, self.meta.get("input_labels", False))
         return load_embedder(self.model_name)([text])[0]
 
     def _ranked(self, query, using: str, limit: int):

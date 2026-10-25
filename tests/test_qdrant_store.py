@@ -38,7 +38,7 @@ def test_the_collection_keeps_every_chunk_and_the_model_name(store, tiny_index):
 def test_chunks_can_be_written_without_an_index_on_disk(tiny_index, monkeypatch):
     # The build script's --qdrant route: chunks and fresh embeddings, no files.
     client = QdrantClient(":memory:")
-    meta = index.make_manifest("fake", tiny_index.embeddings, {"chunk_strategy": "fixed"})
+    meta = index.make_manifest("fake", 2, 6, {"chunk_strategy": "fixed"})
     n = qdrant_store.write_collection(client, "direct", tiny_index.chunks, tiny_index.embeddings, meta)
     store = qdrant_store.QdrantStore(client, "direct")
     monkeypatch.setattr(store, "embed_query", lambda text: QUERY_VECTOR)
@@ -67,3 +67,38 @@ def test_unknown_mode_and_missing_collection_are_reported(store):
         store.search("drusen", mode="dense")
     with pytest.raises(FileNotFoundError, match="build_qdrant.py"):
         qdrant_store.QdrantStore(QdrantClient(":memory:"), "missing")
+
+
+def test_streaming_resumes_after_an_interruption(tiny_index, monkeypatch):
+    client = QdrantClient(":memory:")
+    by_text = {c.text: tiny_index.embeddings[i] for i, c in enumerate(tiny_index.chunks)}
+    meta = index.make_manifest("fake", 2, 6)
+    calls = []
+
+    def flaky(texts):
+        calls.append(len(texts))
+        if len(calls) == 2:
+            raise RuntimeError("MPS stalled")
+        return [by_text[t] for t in texts]
+
+    with pytest.raises(RuntimeError, match="stalled"):
+        qdrant_store.stream_collection(client, "full", tiny_index.chunks, flaky, meta, batch=2)
+    assert client.count("full").count == 2  # the first batch survived
+
+    seen = []
+    n = qdrant_store.stream_collection(
+        client, "full", tiny_index.chunks, lambda t: [by_text[x] for x in t], meta,
+        batch=2, progress=seen.append,
+    )
+    assert n == 6 and seen == [2, 4, 6]  # resumed at chunk 2, not from the start
+    store = qdrant_store.QdrantStore(client, "full")
+    monkeypatch.setattr(store, "embed_query", lambda text: QUERY_VECTOR)
+    assert [h.chunk.title for h in store.search("drusen deposits", k=2)] == ["Article A", "Article B"]
+
+
+def test_streaming_refuses_to_resume_a_different_index(tiny_index):
+    client = QdrantClient(":memory:")
+    embed = lambda texts: tiny_index.embeddings[: len(texts)]  # noqa: E731
+    qdrant_store.stream_collection(client, "full", tiny_index.chunks[:2], embed, index.make_manifest("fake", 2, 2))
+    with pytest.raises(ValueError, match="different index"):
+        qdrant_store.stream_collection(client, "full", tiny_index.chunks, embed, index.make_manifest("other", 2, 6))

@@ -89,10 +89,44 @@ def load_embedder(model_name: str, device: str | None = None) -> EmbedFn:
             vectors = model.encode(
                 texts, normalize_embeddings=True, convert_to_numpy=True
             )
+            if model.device.type == "mps":
+                # Hand cached GPU buffers back after each call: over a long build the
+                # MPS allocator otherwise holds gigabytes and pushes macOS into swap.
+                import torch
+
+                torch.mps.empty_cache()
             return np.asarray(vectors, dtype=np.float32)
 
         _EMBEDDERS[key] = embed
     return _EMBEDDERS[key]
+
+
+# Models trained with labels in front of their input. EmbeddingGemma marks a question
+# "task: search result | query: " and a passage "title: {title} | text: ", per its
+# model card; the other embedders define no labels. An index records whether it was
+# built with them ("input_labels" in its manifest), and only then are queries
+# labelled, so an index built before labels were added is still queried as it was
+# built.
+_LABELLED = {"google/embeddinggemma-300m"}
+
+
+def uses_labels(model_name: str) -> bool:
+    """Whether the model was trained with question and passage labels."""
+    return model_name in _LABELLED
+
+
+def passage_text(model_name: str, chunk: Chunk) -> str:
+    """The text embedded for a passage: labelled with its article title if the model wants it."""
+    if uses_labels(model_name):
+        return f"title: {chunk.title or 'none'} | text: {chunk.text}"
+    return chunk.text
+
+
+def query_text(model_name: str, text: str, labelled: bool) -> str:
+    """The text embedded for a question, labelled when its index was built with labels."""
+    if labelled and uses_labels(model_name):
+        return f"task: search result | query: {text}"
+    return text
 
 
 def tokenize(text: str) -> list[str]:
@@ -142,6 +176,7 @@ class Index:
 
     def embed_query(self, text: str) -> np.ndarray:
         """Encode a query with the index's own embedding model."""
+        text = query_text(self.model_name, text, self.meta.get("input_labels", False))
         return load_embedder(self.model_name)([text])[0]
 
 
@@ -184,24 +219,27 @@ def build_index(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     embed = load_embedder(model_name, device)
-    embeddings = embed([c.text for c in chunks])
+    embeddings = embed([passage_text(model_name, c) for c in chunks])
 
     np.save(out_dir / "embeddings.npy", embeddings)
     with (out_dir / "chunks.jsonl").open("w", encoding="utf-8") as fh:
         for chunk in chunks:
             fh.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")
 
-    manifest = make_manifest(model_name, embeddings, config_meta)
+    manifest = make_manifest(
+        model_name, int(embeddings.shape[1]), len(chunks),
+        {"input_labels": uses_labels(model_name), **(config_meta or {})},
+    )
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return out_dir
 
 
-def make_manifest(model_name: str, embeddings: np.ndarray, config_meta: dict | None = None) -> dict:
+def make_manifest(model_name: str, dim: int, n_chunks: int, config_meta: dict | None = None) -> dict:
     """Describe an index: its model, dimensions, size, build time and config."""
     return {
         "model_name": model_name,
-        "dim": int(embeddings.shape[1]),
-        "n_chunks": int(embeddings.shape[0]),
+        "dim": dim,
+        "n_chunks": n_chunks,
         "created_at": datetime.now(timezone.utc).isoformat(),
         **(config_meta or {}),
     }
