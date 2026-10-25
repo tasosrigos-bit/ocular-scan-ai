@@ -26,7 +26,7 @@ import numpy as np
 
 from ocular.rag.retrieve import Hit
 
-# A function that scores a query against a list of candidate texts.
+# A function that scores a query against a list of candidate texts, as raw logits.
 RerankFn = Callable[[str, list[str]], np.ndarray]
 
 # Loaded rerankers, keyed by (model name, device), instantiated once per process.
@@ -68,11 +68,21 @@ def load_reranker(model_name: str = DEFAULT_RERANKER, device: str | None = None)
                 "uv add sentence-transformers."
             ) from exc
 
+        import torch
+
         model = CrossEncoder(model_name, device=device)
+        # Some cross-encoders, ncbi/MedCPT-Cross-Encoder among them, set no input limit
+        # in their tokenizer, so long passages would overrun the 512-token BERT
+        # encoder. Those are capped at 512, while a model that states its own limit,
+        # such as the 8,192-token gte reranker, keeps it.
+        if not model.max_length or model.max_length > 100_000:
+            model.max_length = 512
 
         def score(query: str, texts: list[str]) -> np.ndarray:
             pairs = [[query, text] for text in texts]
-            return np.asarray(model.predict(pairs), dtype=np.float32)
+            # Raw logits, so candidates that a sigmoid would round to the same 0 or 1
+            # still rank in order. :func:`rerank` converts them to 0-1 afterwards.
+            return np.asarray(model.predict(pairs, activation_fn=torch.nn.Identity()), dtype=np.float32)
 
         _RERANKERS[key] = score
     return _RERANKERS[key]
@@ -104,12 +114,23 @@ def rerank(
     -------
     list of Hit
         The hits reordered by the cross-encoder, each with its ``score`` set to
-        the cross-encoder score and its ``rank`` renumbered from one.
+        the cross-encoder's relevance in 0-1 (the sigmoid of its logit) and its
+        ``rank`` renumbered from one.
+
+    Notes
+    -----
+    The hits are ordered by the raw logits and only then mapped to 0-1. A
+    cross-encoder with large logits, such as MedCPT (about +7 for a relevant
+    passage and -12 for an irrelevant one), would otherwise have several strong
+    candidates rounded to exactly 1.0 and ranked arbitrarily among themselves.
+    For a model with modest logits, such as the gte reranker, the order and the
+    scores are the same as ranking on the 0-1 values directly.
     """
     if not hits:
         return []
-    scores = load_reranker(model_name, device)(query, [h.chunk.text for h in hits])
-    order = np.argsort(-scores)
+    logits = load_reranker(model_name, device)(query, [h.chunk.text for h in hits])
+    order = np.argsort(-logits, kind="stable")
     if k is not None:
         order = order[:k]
-    return [Hit(hits[i].chunk, float(scores[i]), rank) for rank, i in enumerate(order, 1)]
+    relevance = 1 / (1 + np.exp(-logits.astype(np.float64)))
+    return [Hit(hits[i].chunk, float(relevance[i]), rank) for rank, i in enumerate(order, 1)]
