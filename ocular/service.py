@@ -5,7 +5,8 @@ any web framework, so it can be called and tested directly: the classifier, the
 Grad-CAM explanation and the literature-grounded assistant.
 
 :func:`analyse` classifies one uploaded B-scan and explains it. :func:`reply` answers
-a conversation with basic RAG over the selected retrieval configuration. The index
+a conversation with basic RAG over the selected retrieval configuration, run as a
+LangGraph graph built by :func:`build_assistant`. The index
 and the chat model are loaded once per process and cached. Both functions are traced
 in MLflow when it is configured, see :mod:`ocular.observability`.
 """
@@ -15,8 +16,10 @@ import io
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated, TypedDict
 
 import numpy as np
+from langgraph.graph.message import add_messages
 from PIL import Image
 
 from ocular import observability
@@ -69,15 +72,16 @@ over-claim."""
 def load_index():
     """Open the selected retrieval index once per process.
 
-    With ``QDRANT_URL`` set, the index is the Qdrant collection of the same name on
-    that server. Otherwise it is the in-memory index loaded from ``data/index``,
-    which is what the notebooks, the tests and a run without Docker use.
+    With ``QDRANT_URL`` set, the index is a Qdrant collection on that server, the
+    one named by ``QDRANT_COLLECTION`` or else the one named like :data:`INDEX`.
+    Otherwise it is the in-memory index loaded from ``data/index``, which is what
+    the notebooks, the tests and a run without Docker use.
     """
     url = os.getenv("QDRANT_URL")
     if url:
         from ocular.rag.qdrant_store import QdrantStore
 
-        return QdrantStore.connect(url, INDEX)
+        return QdrantStore.connect(url, os.getenv("QDRANT_COLLECTION", INDEX))
     return index.load_index(index.INDEX_DIR / INDEX)
 
 
@@ -86,8 +90,10 @@ def chat_model():
     """Build the chat model once per process."""
     from langchain_google_genai import ChatGoogleGenerativeAI
 
+    # Temperature 0, as in the evaluated pipeline, so the same question gets the same
+    # answer and the deployed answers match the conditions they were evaluated under.
     return ChatGoogleGenerativeAI(
-        model=llm.MODEL, google_api_key=os.getenv("GEMINI_API_KEY"), max_retries=5
+        model=llm.MODEL, google_api_key=os.getenv("GEMINI_API_KEY"), temperature=0, max_retries=5
     )
 
 
@@ -156,21 +162,141 @@ def sources_of(hits) -> list[dict]:
     ]
 
 
+class AssistantState(TypedDict):
+    """What the assistant graph carries from node to node.
+
+    ``messages`` is the conversation, starting with the system prompt, to which each
+    node appends (``add_messages`` merges rather than replaces). ``rounds`` counts
+    the model's turns, so the graph can cap them.
+    """
+
+    messages: Annotated[list, add_messages]
+    rounds: int
+
+
+def build_assistant(toolmap: dict, hits: list):
+    """The assistant as a LangGraph graph: a model node and a tools node in a loop.
+
+    ::
+
+        START -> model -> tools -> model -> ...    while the model calls tools
+                 model -> END                       once it writes the answer
+
+    **model** asks the language model for the next step, streaming its text as it
+    is written. On the last of ``MAX_TOOL_ROUNDS`` rounds tool calls are switched
+    off, so the run always ends on a written answer. **tools** runs the calls the
+    model asked for. A tool that fails is the graph's fallback path: its error
+    becomes the tool's message, so the model can still answer, and say what it
+    could not do, instead of the whole answer failing. Both nodes report their
+    steps and text through LangGraph's stream writer, and record MLflow spans.
+
+    Parameters
+    ----------
+    toolmap : dict
+        Tool name to LangChain tool, here ``search_corpus`` and ``classify_scan``.
+    hits : list
+        The collector the search tool appends its passages to, read here to record
+        what each search returned.
+
+    Returns
+    -------
+    langgraph.graph.state.CompiledStateGraph
+        The compiled graph, run with ``{"messages": [...], "rounds": 0}``.
+    """
+    from langchain_core.messages import ToolMessage, message_chunk_to_message
+    from langgraph.config import get_stream_writer
+    from langgraph.graph import END, START, StateGraph
+
+    tool_list = list(toolmap.values())
+    with_tools = chat_model().bind_tools(tool_list)
+    answer_only = chat_model().bind_tools(tool_list, tool_choice="none")
+
+    def model(state: AssistantState) -> dict:
+        emit = get_stream_writer()
+        round_ = state["rounds"]
+        last = round_ == MAX_TOOL_ROUNDS - 1
+        # After a tool round the model may search again or write the answer; which
+        # one is only known once it replies, so the step is named for both.
+        emit({"status": "Reading the question" if round_ == 0 else "Reviewing the results"})
+        with observability.span(
+            f"{llm.MODEL} round {round_ + 1}", "CHAT_MODEL",
+            {"messages": len(state["messages"]), "tools_allowed": not last},
+        ) as model_span:
+            # Streamed rather than invoked, so the answer's text reaches the caller as
+            # it is written. The chunks add up to the full message, tool calls and
+            # token counts included.
+            merged = None
+            for chunk in (answer_only if last else with_tools).stream(state["messages"]):
+                merged = chunk if merged is None else merged + chunk
+                if piece := text(chunk.content):
+                    emit({"text": piece})
+            answer = message_chunk_to_message(merged)
+            model_span.set_outputs({
+                "text": text(answer.content),
+                "tool_calls": [{"name": c["name"], "args": c["args"]} for c in answer.tool_calls],
+            })
+            if answer.usage_metadata:
+                model_span.set_attributes({
+                    key: answer.usage_metadata[key]
+                    for key in ("input_tokens", "output_tokens", "total_tokens")
+                    if key in answer.usage_metadata
+                })
+        return {"messages": [answer], "rounds": round_ + 1}
+
+    def run_tools(state: AssistantState) -> dict:
+        emit = get_stream_writer()
+        results = []
+        for call in state["messages"][-1].tool_calls:
+            searching = call["name"] == "search_corpus"
+            if searching:
+                emit({"status": f"Searching the literature for “{call['args'].get('query', '')}”"})
+            else:
+                emit({"status": "Classifying the scan"})
+            before = len(hits)
+            with observability.span(
+                call["name"], "RETRIEVER" if searching else "TOOL", call["args"]
+            ) as tool_span:
+                try:
+                    result = toolmap[call["name"]].invoke(call["args"])
+                except Exception as exc:
+                    result = (
+                        f"The {call['name']} tool failed ({type(exc).__name__}: {exc}). "
+                        "Answer without it and tell the user what could not be done."
+                    )
+                    tool_span.set_attributes({"error": f"{type(exc).__name__}: {exc}"})
+                tool_span.set_outputs(_as_documents(hits[before:]) if searching else result)
+            results.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        return {"messages": results}
+
+    def route(state: AssistantState) -> str:
+        wants_tools = bool(state["messages"][-1].tool_calls)
+        return "tools" if wants_tools and state["rounds"] < MAX_TOOL_ROUNDS else END
+
+    graph = StateGraph(AssistantState)
+    graph.add_node("model", model)
+    graph.add_node("tools", run_tools)
+    graph.add_edge(START, "model")
+    graph.add_conditional_edges("model", route, {"tools": "tools", END: END})
+    graph.add_edge("tools", "model")
+    return graph.compile()
+
+
 def reply(
     messages: list[dict], scan_path=None, on_status=None, on_text=None
 ) -> tuple[str, list[dict]]:
     """Answer with basic RAG: a short run of tool calls, then a grounded answer.
 
-    The model is given the two tools and works in rounds. In each round it may call
-    ``classify_scan`` or ``search_corpus``, the results are fed back, and it is asked
-    again, until it stops calling tools and writes the answer. The rounds are needed
-    because the tools depend on each other: for a question about the scan the model
-    classifies it first and only then searches the literature for what it found, so
-    the two calls happen one after another rather than at once. ``search_corpus``
-    still performs a single retrieval per call under the selected configuration
-    (fixed chunks, the biomedical embedder, hybrid retrieval, the gte reranker), so
-    the assistant stays basic rather than agentic and does not run the reformulate
-    and search again loop that the Phase B evaluation in notebook 09 found brings no
+    The model is given the two tools and works in rounds, as the graph from
+    :func:`build_assistant`. In each round it may call ``classify_scan`` or
+    ``search_corpus``, the results are fed back, and it is asked again, until it
+    stops calling tools and writes the answer. The rounds are needed because the
+    tools depend on each other: for a question about the scan the model classifies
+    it first and only then searches the literature for what it found, so the two
+    calls happen one after another rather than at once. ``search_corpus`` still
+    performs a single retrieval per call under the selected configuration (fixed
+    chunks, the biomedical embedder, hybrid retrieval, the gte reranker), so the
+    assistant stays basic rather than agentic and does not run the reformulate and
+    search again loop that the Phase B evaluation in notebook 09 found brings no
     gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
     forbids tool calls, so the model always ends on a written answer rather than an
     unanswered tool call.
@@ -199,79 +325,38 @@ def reply(
         numbered for the model, so a front-end can show the evidence the citations
         point at. The list is empty when the model searched nothing.
     """
-    from langchain_core.messages import (
-        AIMessage,
-        HumanMessage,
-        SystemMessage,
-        ToolMessage,
-        message_chunk_to_message,
-    )
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     hits: list = []
-    search = tools.make_search_corpus(
-        load_index(), rerank_model=rerank.DEFAULT_RERANKER, collector=hits
-    )
-    classify = tools.make_classify_scan(lambda: scan_path)
-    toolmap = {"search_corpus": search, "classify_scan": classify}
-
+    toolmap = {
+        "search_corpus": tools.make_search_corpus(
+            load_index(), rerank_model=rerank.DEFAULT_RERANKER, collector=hits
+        ),
+        "classify_scan": tools.make_classify_scan(lambda: scan_path),
+    }
     convo = [SystemMessage(SYSTEM)]
     for m in messages:
         convo.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
 
     status = on_status or (lambda text: None)
     write = on_text or (lambda text: None)
-    bound = chat_model().bind_tools([search, classify])
     question = messages[-1]["content"] if messages else ""
     with observability.span(
         "answer_question", "AGENT",
         {"question": question, "turns": len(messages), "scan_uploaded": scan_path is not None},
     ) as trace:
-        for round_ in range(MAX_TOOL_ROUNDS):
-            # After a tool round the model may search again or write the answer; which
-            # one is only known once it replies, so the step is named for both.
-            status("Reading the question" if round_ == 0 else "Reviewing the results")
-            last = round_ == MAX_TOOL_ROUNDS - 1
-            model = chat_model().bind_tools([search, classify], tool_choice="none") if last else bound
-            with observability.span(
-                f"{llm.MODEL} round {round_ + 1}", "CHAT_MODEL",
-                {"messages": len(convo), "tools_allowed": not last},
-            ) as model_span:
-                # Streamed rather than invoked, so the answer's text reaches the caller
-                # as it is written. The chunks add up to the full message, tool calls
-                # and token counts included.
-                merged = None
-                for chunk in model.stream(convo):
-                    merged = chunk if merged is None else merged + chunk
-                    if piece := text(chunk.content):
-                        write(piece)
-                answer = message_chunk_to_message(merged)
-                model_span.set_outputs({
-                    "text": text(answer.content),
-                    "tool_calls": [{"name": c["name"], "args": c["args"]} for c in answer.tool_calls],
-                })
-                if answer.usage_metadata:
-                    model_span.set_attributes({
-                        key: answer.usage_metadata[key]
-                        for key in ("input_tokens", "output_tokens", "total_tokens")
-                        if key in answer.usage_metadata
-                    })
-            if not answer.tool_calls:
-                break
-            convo.append(answer)
-            for call in answer.tool_calls:
-                searching = call["name"] == "search_corpus"
-                if searching:
-                    status(f"Searching the literature for “{call['args'].get('query', '')}”")
-                else:
-                    status("Classifying the scan")
-                before = len(hits)
-                with observability.span(
-                    call["name"], "RETRIEVER" if searching else "TOOL", call["args"]
-                ) as tool_span:
-                    result = toolmap[call["name"]].invoke(call["args"])
-                    tool_span.set_outputs(_as_documents(hits[before:]) if searching else result)
-                convo.append(ToolMessage(content=result, tool_call_id=call["id"]))
-        final = text(answer.content)
+        final_state = None
+        graph = build_assistant(toolmap, hits)
+        for mode, event in graph.stream(
+            {"messages": convo, "rounds": 0}, stream_mode=["custom", "values"]
+        ):
+            if mode == "values":
+                final_state = event
+            elif "status" in event:
+                status(event["status"])
+            elif "text" in event:
+                write(event["text"])
+        final = text(final_state["messages"][-1].content)
         trace.set_outputs({"answer": final, "passages": len(hits)})
     return final, sources_of(hits)
 

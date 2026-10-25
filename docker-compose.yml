@@ -25,6 +25,7 @@ services:
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --artifacts-destination /mlflow/artifacts
       --allowed-hosts "*"
+      --workers 1
     ports:
       # 5001 on the host, since macOS keeps 5000 for the AirPlay receiver.
       - "5001:5000"
@@ -40,6 +41,9 @@ services:
         required: false
     environment:
       QDRANT_URL: http://qdrant:6333
+      # The full-corpus index (8,535 articles). Remove this line to use the evaluated
+      # 508-article index, fixed__MedEmbed-base-v0.1.
+      QDRANT_COLLECTION: fixed__MedEmbed-base-v0.1__corpus_full
       MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./experiments/convnext_final_e1.pt:/app/experiments/convnext_final_e1.pt:ro

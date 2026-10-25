@@ -1,9 +1,12 @@
 """Generate a grounded answer from retrieved context.
 
-This is the core of the RAG system, shared by two callers: the evaluation, which
-runs it across many configurations to compare them, and the deployed application,
-which runs it with the single configuration the evaluation selected. Because both
-use this one function, what the evaluation measures is exactly what the app ships.
+This is the basic RAG pipeline that the evaluation runs across many configurations
+to compare them. The deployed application does not call it. Its assistant,
+:func:`ocular.service.reply`, runs the same retrieval through the ``search_corpus``
+tool, over the same index with the same hybrid mode, 50 candidates, reranker and
+five passages, but writes the answer through a tool-calling agent under its own
+system prompt. The evaluation's measurements of retrieval therefore hold for the
+application, while its measurements of the written answer describe this function.
 
 The step is single-turn: given a question and an index, it retrieves the most
 relevant passages (optionally reranked), builds a prompt that instructs the model

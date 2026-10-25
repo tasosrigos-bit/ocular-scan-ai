@@ -42,12 +42,14 @@ class ScriptedChat:
     def __init__(self, rounds):
         self.rounds = rounds
         self.calls = 0
+        self.inputs = []  # the conversation the model was given, per round
 
     def bind_tools(self, tools, **kwargs):
         return self
 
     def stream(self, convo):
         self.calls += 1
+        self.inputs.append(list(convo))
         yield from self.rounds(self.calls)
 
 
@@ -100,3 +102,41 @@ def test_reply_stops_after_the_round_cap(offline):
     chat = offline(ScriptedChat(lambda n: [_tool_call("classify_scan", {}, f"c{n}")]))
     service.reply([{"role": "user", "content": "What does this scan show?"}])
     assert chat.calls == service.MAX_TOOL_ROUNDS
+
+
+def test_the_assistant_is_a_model_and_tools_graph(offline):
+    offline(ScriptedChat(lambda n: [AIMessageChunk(content="ok")]))
+    graph = service.build_assistant({}, []).get_graph()
+    assert {n for n in graph.nodes} == {"__start__", "model", "tools", "__end__"}
+    edges = {(e.source, e.target) for e in graph.edges}
+    assert {("__start__", "model"), ("model", "tools"), ("model", "__end__"), ("tools", "model")} <= edges
+
+
+def test_a_failing_tool_becomes_a_message_instead_of_an_error(offline, monkeypatch):
+    def rounds(n):
+        if n == 1:
+            return [_tool_call("search_corpus", {"query": "drusen"}, "c1")]
+        return [AIMessageChunk(content="The literature search failed, so I cannot cite sources.")]
+
+    chat = offline(ScriptedChat(rounds))
+
+    def broken(*args, **kwargs):
+        raise ConnectionError("Qdrant unreachable")
+
+    monkeypatch.setattr("ocular.rag.retrieve.retrieve", broken)
+    answer, sources = service.reply([{"role": "user", "content": "What are drusen?"}])
+    assert answer.startswith("The literature search failed")
+    assert sources == []
+    tool_message = chat.inputs[-1][-1]  # what the model saw before its second round
+    assert "search_corpus tool failed (ConnectionError: Qdrant unreachable)" in tool_message.content
+
+
+def test_a_call_to_an_unknown_tool_is_reported_back_to_the_model(offline):
+    def rounds(n):
+        if n == 1:
+            return [_tool_call("delete_corpus", {}, "c1")]
+        return [AIMessageChunk(content="I can only search and classify.")]
+
+    offline(ScriptedChat(rounds))
+    answer, _ = service.reply([{"role": "user", "content": "Delete everything."}])
+    assert answer == "I can only search and classify."
