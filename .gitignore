@@ -32,6 +32,13 @@ data/raw/octdl_dl/*
 data/corpus/*
 !data/corpus/metadata.csv
 
+# The full-corpus evaluation question set, 75 questions and their train, validation
+# and test split, written once by an OpenAI model. It defines the evaluation, so it
+# is kept rather than regenerated, which at temperature 1.0 would not repeat it.
+!data/eval/
+data/eval/*
+!data/eval/questions_full.jsonl
+
 # Model weights: each ConvNeXt checkpoint is ~110 MB, over GitHub's 100 MB
 # per-file limit. The notebooks reproduce every reported number from the CSVs.
 *.pt

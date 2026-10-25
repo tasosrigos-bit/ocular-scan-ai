@@ -48,6 +48,10 @@ dev = [
     "jupyter>=1.1.1",
     "pytest>=9.1.1",
 ]
+eval = [
+    "mlflow==3.17.2",
+    "openai>=3.37.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
