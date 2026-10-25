@@ -14,7 +14,7 @@ def test_search_corpus_numbers_the_passages_and_collects_them(tiny_index):
 
 
 def test_format_says_so_when_nothing_was_found():
-    assert tools._format([]) == "No relevant passages found."
+    assert tools.format_passages([]) == "No relevant passages found."
 
 
 def test_classify_scan_without_an_upload_does_not_load_the_model(monkeypatch):

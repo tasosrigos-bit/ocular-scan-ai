@@ -37,6 +37,8 @@ INDEX = "fixed__MedEmbed-base-v0.1"
 # the answer, so the cap sits a little above that and forces a text answer on the
 # last round rather than letting the model spend it on another tool call.
 MAX_TOOL_ROUNDS = 4
+# Earlier messages recorded with each question's trace, for the judges.
+EARLIER_TURNS = 4
 
 SYSTEM = """You are a clinical decision-support assistant for ophthalmologists, working alongside a
 classifier for OCT B-scans. Your role is to support the clinician's judgement, never to replace it.
@@ -370,9 +372,12 @@ def reply(
     status = on_status or (lambda text: None)
     write = on_text or (lambda text: None)
     question = messages[-1]["content"] if messages else ""
+    # The judges see this span's inputs and outputs only, so the inputs carry the
+    # last few turns before the question, for a follow-up to make sense.
     with observability.span(
         "answer_question", "AGENT",
-        {"question": question, "turns": len(messages), "scan_uploaded": scan_path is not None},
+        {"question": question, "earlier_turns": messages[:-1][-EARLIER_TURNS:],
+         "turns": len(messages), "scan_uploaded": scan_path is not None},
     ) as trace:
         observability.set_session(session_id)
         final_state = None
@@ -387,7 +392,16 @@ def reply(
             elif "text" in event:
                 write(event["text"])
         final = text(final_state["messages"][-1].content)
-        trace.set_outputs({"answer": final, "passages": len(hits)})
+        searched = any(
+            getattr(m, "name", None) == "search_corpus" for m in final_state["messages"][len(convo):]
+        )
+        # The passages exactly as the model saw them, numbered, so the guideline
+        # judges can check the citations and whether the literature answered.
+        trace.set_outputs({
+            "answer": final,
+            "passages": tools.format_passages(hits) if searched else "No literature search was run.",
+        })
+        observability.tag_trace({"searched": str(searched).lower()})
     return final, sources_of(hits)
 
 

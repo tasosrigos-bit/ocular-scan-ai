@@ -32,7 +32,7 @@ from ocular.rag.retrieve import Hit
 # ---------------------------------------------------------------------------
 
 
-def _format(hits: list[Hit]) -> str:
+def format_passages(hits: list[Hit]) -> str:
     """Number the retrieved passages and label each with its source."""
     blocks = []
     for i, h in enumerate(hits, 1):
@@ -81,7 +81,7 @@ def make_search_corpus(
             hits = hits[:k]
         if collector is not None:
             collector.extend(hits)
-        return _format(hits)
+        return format_passages(hits)
 
     return search_corpus
 

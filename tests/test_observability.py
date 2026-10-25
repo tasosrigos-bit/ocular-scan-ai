@@ -21,6 +21,7 @@ class RecordingSpan:
         self.name, self.span_type = name, span_type
         self.inputs = self.outputs = None
         self.attributes = {}
+        self.tags = {}
 
     def set_inputs(self, inputs):
         self.inputs = inputs
@@ -41,7 +42,8 @@ def recorded(monkeypatch):
         spans.append(RecordingSpan(name, span_type))
         yield spans[-1]
 
-    monkeypatch.setitem(sys.modules, "mlflow", SimpleNamespace(start_span=start_span))
+    monkeypatch.setitem(sys.modules, "mlflow", SimpleNamespace(
+        start_span=start_span, update_current_trace=lambda **kw: spans[0].tags.update(kw.get("tags", {}))))
     monkeypatch.setattr(observability, "_enabled", True)
     return spans
 
@@ -86,7 +88,10 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
     ]
     question, first_round, search, second_round = recorded
     assert question.inputs["question"] == "What are drusen?"
-    assert question.outputs == {"answer": "Drusen are deposits [1].", "passages": 5}
+    assert question.inputs["earlier_turns"] == []
+    assert question.outputs["answer"] == "Drusen are deposits [1]."
+    assert question.outputs["passages"].startswith("[1] (Article A - Results)")
+    assert question.tags == {"searched": "true"}
     assert first_round.outputs["tool_calls"] == [
         {"name": "search_corpus", "args": {"query": "drusen deposits"}}
     ]

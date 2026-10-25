@@ -70,6 +70,14 @@ def set_session(session_id: str | None) -> None:
         mlflow.update_current_trace(session_id=session_id)
 
 
+def tag_trace(tags: dict[str, str]) -> None:
+    """Tag the current trace, for example so a judge runs only on some traces."""
+    if _enabled:
+        import mlflow
+
+        mlflow.update_current_trace(tags=tags)
+
+
 @contextmanager
 def span(name: str, span_type: str = "UNKNOWN", inputs=None):
     """Open a traced span, nested under the current one if there is one.

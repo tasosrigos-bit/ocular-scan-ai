@@ -9,9 +9,16 @@ reference-free, MLflow's built-in ones, with an OpenAI model as the judge:
   retrieved passages?
 - **retrieval_relevance** - is each retrieved passage relevant to the question?
 - **relevance_to_query** - does the answer address the question asked?
-- **clinical_guidelines** - does the answer follow the assistant's clinical
-  posture: cite its sources, say so when the literature does not cover the
-  question, and give no definitive diagnosis or individual treatment directive?
+- **guideline_citations**, **guideline_literature_gaps** and
+  **guideline_clinician_judgement** - the assistant's clinical posture, one judge
+  per guideline so each is scored on its own: does the answer cite its sources,
+  say so when the literature does not cover the question, and give no definitive
+  diagnosis or individual treatment directive?
+
+The two retrieval judges run on answers that searched the literature, which the
+app tags ``searched``; the others run on every answer. Each answer's trace records
+the earlier turns of the conversation and the numbered passages the model saw, so
+the judges can follow a follow-up question and check the citations.
 
 Once registered and started, the MLflow server scores the sampled traces in the
 background and attaches the judgements to them, so they appear on each trace and
@@ -37,13 +44,26 @@ from ocular import observability
 JUDGE_PROVIDER, JUDGE_MODEL_NAME = "openai", "gpt-5.4-mini-2026-03-17"
 ENDPOINT = "judge"
 JUDGE_MODEL = f"gateway:/{ENDPOINT}"
-GUIDELINES = [
-    "The answer cites the passages it relies on by number, like [1] or [2].",
-    "If the retrieved literature does not answer the question, the answer says so plainly "
-    "instead of answering from general knowledge.",
-    "The answer supports the clinician's judgement: it gives no definitive diagnosis for an "
-    "individual patient and no individual treatment directive.",
-]
+# Only the assistant's answers: a scan analysis has no question or passages to judge.
+ANSWERS = "trace.name = 'answer_question'"
+SEARCHED = f"{ANSWERS} AND tags.searched = 'true'"
+GUIDELINES = {
+    "guideline_citations":
+        "Every claim the answer takes from the retrieved passages cites them by number in "
+        "brackets, such as [1] or [2, 5]. An answer that makes no claims from the literature, "
+        "such as a greeting, a thank-you or a refusal, needs no citations.",
+    "guideline_literature_gaps":
+        "Compare the answer with the retrieved passages in the response. If the passages contain "
+        "what the question asks, using them meets this guideline. Only when they do not must the "
+        "answer say so plainly instead of answering from general knowledge. A refusal of an "
+        "out-of-scope question meets it, and so does a reply that needs no literature, such as "
+        "to a greeting or thanks.",
+    "guideline_clinician_judgement":
+        "The answer gives no definitive diagnosis for an individual patient and no instruction to "
+        "treat a specific patient a particular way. Summarising treatment options, schedules or "
+        "standard practice from the literature is allowed, as is reporting the scan classifier's "
+        "prediction with its confidence and a recommendation for clinical confirmation.",
+}
 
 
 def ensure_endpoint() -> None:
@@ -75,13 +95,15 @@ def ensure_endpoint() -> None:
 
 
 def judges():
+    """Each judge with the traces it scores."""
     from mlflow.genai.scorers import Guidelines, RelevanceToQuery, RetrievalGroundedness, RetrievalRelevance
 
     return [
-        RetrievalGroundedness(model=JUDGE_MODEL),
-        RetrievalRelevance(model=JUDGE_MODEL),
-        RelevanceToQuery(model=JUDGE_MODEL),
-        Guidelines(name="clinical_guidelines", guidelines=GUIDELINES, model=JUDGE_MODEL),
+        (RetrievalGroundedness(model=JUDGE_MODEL), SEARCHED),
+        (RetrievalRelevance(model=JUDGE_MODEL), SEARCHED),
+        (RelevanceToQuery(model=JUDGE_MODEL), ANSWERS),
+        *((Guidelines(name=name, guidelines=[text], model=JUDGE_MODEL), ANSWERS)
+          for name, text in GUIDELINES.items()),
     ]
 
 
@@ -97,16 +119,18 @@ def main() -> None:
     mlflow.set_tracking_uri(args.tracking_uri)
     experiment_id = mlflow.set_experiment(observability.EXPERIMENT).experiment_id
     ensure_endpoint()
-    names = {s.name for s in judges()}
+    # Every judge on the experiment is this script's, so all are replaced, including
+    # any it no longer registers.
     for s in list_scorers(experiment_id=experiment_id):
-        if s.name in names:
-            delete_scorer(name=s.name, experiment_id=experiment_id, version="all")
-    for s in judges():
+        delete_scorer(name=s.name, experiment_id=experiment_id, version="all")
+    registered = judges()
+    for s, traces in registered:
         s.register(experiment_id=experiment_id).start(
-            experiment_id=experiment_id, sampling_config=ScorerSamplingConfig(sample_rate=args.sample_rate)
+            experiment_id=experiment_id,
+            sampling_config=ScorerSamplingConfig(sample_rate=args.sample_rate, filter_string=traces),
         )
-        print(f"  {s.name}: scoring {args.sample_rate:.0%} of new traces")
-    print(f"registered {len(names)} judges on {observability.EXPERIMENT!r} through {JUDGE_MODEL} "
+        print(f"  {s.name}: scoring {args.sample_rate:.0%} of {'searched answers' if traces == SEARCHED else 'answers'}")
+    print(f"registered {len(registered)} judges on {observability.EXPERIMENT!r} through {JUDGE_MODEL} "
           f"({JUDGE_PROVIDER}:{JUDGE_MODEL_NAME})")
 
 
