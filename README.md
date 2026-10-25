@@ -136,8 +136,8 @@ gh release download v0.1.0 --pattern rag-artifacts.tar.gz && tar xzf rag-artifac
 
 That is enough for notebooks 03 to 09 and for the application, since the results, the
 clinic scans and the patient-level split are all in the repository. For the assistant,
-add an LLM API key to a git-ignored `.env` at the repository root as
-`GEMINI_API_KEY=...`, and start the application with
+copy `.env.example` to a git-ignored `.env` at the repository root and fill in
+`GEMINI_API_KEY`, then start the application with
 
 ```
 uv run uvicorn app.api:app
@@ -230,7 +230,8 @@ itself and are the only two that need the 5.8 GB of downloaded imagery.
 
 The application needs three things, none of which is in the repository. They are the
 delivered checkpoint, the retrieval archive above, and an LLM API key in a git-ignored
-`.env` at the repository root as `GEMINI_API_KEY=...`. With those in place,
+`.env` at the repository root. `.env.example` lists every setting with where to get
+it; copy it to `.env` and fill in at least `GEMINI_API_KEY`. With those in place,
 
 ```
 uv run uvicorn app.api:app
@@ -282,6 +283,31 @@ collection without any index files on disk:
 uv run python scripts/build_index.py --chunk-strategy fixed \
     --embed-model abhinand/MedEmbed-base-v0.1 --device cpu --qdrant
 ```
+
+### The full corpus
+
+The evaluated corpus is the 508 newest reusable articles from the journal whitelist.
+The whitelist holds 26,299 open-access articles in all, and the full corpus takes
+every one whose licence permits reuse, 8,535 articles under CC BY. The rest are
+NonCommercial or NoDerivatives (14,900), under publisher-specific terms (about
+1,800) or served without text (1,041). It is built into its own folder, so the
+evaluated corpus, its questions and its results stay as they were:
+
+```
+uv run python scripts/build_corpus.py --all --out-dir data/corpus_full
+uv run python scripts/build_all_indexes.py --corpus-dir data/corpus_full --qdrant --device mps
+```
+
+The first command searches the whitelist one publication year at a time, past the
+9,999 ids a single search returns, and fetches articles 50 to a request with three
+requests in flight under NCBI's rate cap. Each article is written as it arrives, so
+an interrupted build resumes with what is left. The second embeds all nine chunk
+strategy and embedding model combinations straight into Qdrant, as collections named
+like `fixed__MedEmbed-base-v0.1__corpus_full`, of 152,000 to 219,000 passages each
+depending on the chunking. Every
+collection is written batch by batch and resumes from its last batch, so the run can
+be stopped and started again. The application searches one of them when
+`QDRANT_COLLECTION` names it.
 
 ### Running the tests
 
