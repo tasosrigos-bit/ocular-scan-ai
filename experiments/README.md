@@ -16,6 +16,7 @@ package. The scripts import the package, not the other way round.
 | `eval_clinic_scan.py` | Writes the per-scan clinic prediction and class probabilities for one checkpoint. | `results/clinic_scan_e1.csv` |
 | `run_rag_eval.py` | Scores retrieval configurations of the assistant on the synthetic question set with reference-free metrics. | `results/rag_eval.csv` |
 | `run_phaseb.py` | Compares the basic and agentic answering pipelines on the selected configuration. | `results/rag_eval_phaseb.csv` |
+| `run_retrieval_experiments.py` | Runs every retrieval configuration over the full-corpus collections against the 75-question gold set, with no language model. | MLflow experiment `ocular-retrieval` |
 
 Which notebook reads which file is listed in the top-level README.
 

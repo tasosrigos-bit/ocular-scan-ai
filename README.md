@@ -202,7 +202,7 @@ tar xzf rag-artifacts.tar.gz
 
 unpacks them into `data/` at 134 MB. That archive carries the corpus, the three chunk
 caches that notebook 07 compares, the question set, and the one index the deployed
-system uses, `fixed__MedEmbed-base-v0.1`. The other eight indexes of the Phase A sweep
+system uses, `fixed__MedEmbed-base-v0.1`. The other eight indexes of the retrieval experiments
 are omitted deliberately, because nothing reads them. Notebook 08 reports that sweep
 from the committed `rag_eval.csv`, and rebuilding them is only necessary to repeat the
 sweep itself, with `scripts/build_all_indexes.py`.

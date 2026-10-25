@@ -12,7 +12,7 @@ candidates the retriever already found:
 Because only a handful of pairs are scored per query, the reranker is cheap even
 on CPU, and it runs at query time rather than at index-build time, so it needs no
 precomputed artifact. Whether to rerank, and with which model, is one of the
-Phase-A experiment knobs.
+retrieval experiment knobs.
 
 The reranker is deliberately independent of the embedding model. A single strong
 cross-encoder is applied to the candidates from any retriever, which isolates the
@@ -33,7 +33,7 @@ RerankFn = Callable[[str, list[str]], np.ndarray]
 _RERANKERS: dict[tuple[str, str | None], RerankFn] = {}
 
 # The default cross-encoder. A small (149M) ModernBERT reranker that, in the
-# Phase-A sweep, lifted context precision by ~+0.06 over the ms-marco-MiniLM
+# retrieval experiments on the 508-article corpus, lifted context precision by ~+0.06 over the ms-marco-MiniLM
 # baseline at a modest latency cost (~+4 s/query), and far more cheaply than the
 # heavy ``BAAI/bge-reranker-v2-m3`` (+22 s/query for a smaller gain). Plug-and-play
 # via CrossEncoder. Swap for the retrieval knob when experimenting.

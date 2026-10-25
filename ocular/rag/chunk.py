@@ -3,7 +3,7 @@
 Retrieval works over passages, not whole articles, so each :class:`~ocular.rag.corpus.Document`
 is broken into overlapping-or-not text chunks that carry their source metadata
 (id, title, DOI, licence, section) for citation. *How* the split is made is one
-of the experiment knobs (Phase A), so three strategies share one interface:
+of the retrieval experiment knobs, so three strategies share one interface:
 
 - ``"fixed"`` - pack sentences up to a target size with overlap, **ignoring**
   section headings. The simple baseline.

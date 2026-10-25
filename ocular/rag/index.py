@@ -9,7 +9,7 @@ sparse, or hybrid retrieval over the same corpus:
   (``CNV``, ``DME``) that embeddings can blur.
 
 The embedding model is **not fixed here**. Generic vs biomedical embeddings is one
-of the Phase-A experiments, so ``model_name`` is a required argument with no
+of the retrieval experiments, so ``model_name`` is a required argument with no
 default and any `sentence-transformers` model works. Its choice - and therefore
 the `sentence-transformers` dependency - is deliberately deferred until the
 experiment decides; importing this module needs neither, because the embedding

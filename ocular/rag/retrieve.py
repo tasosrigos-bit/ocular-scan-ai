@@ -2,7 +2,7 @@
 
 Given an :class:`~ocular.rag.index.Index`, this module ranks the corpus chunks
 for a query in one of three ways, which is the retrieval knob compared in the
-Phase-A experiments:
+retrieval experiments:
 
 - **vector** - cosine similarity between the query embedding and each chunk
   embedding. Captures meaning, so a query and a chunk can match even when they

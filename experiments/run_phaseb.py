@@ -1,7 +1,7 @@
-"""Phase B: basic RAG vs agentic RAG on the selected retrieval configuration.
+"""Pipeline comparison: basic RAG vs agentic RAG on the selected retrieval configuration.
 
-Phase A chose the retrieval configuration (fixed chunks, hybrid retrieval, the
-gte-modernbert reranker, on the MedEmbed index). Phase B holds that configuration
+The retrieval experiments chose the configuration (fixed chunks, hybrid retrieval, the
+gte-modernbert reranker, on the MedEmbed index). This comparison holds that configuration
 fixed and compares the two answering pipelines from :mod:`ocular.rag.pipeline`:
 basic (one retrieval then generate) versus agentic (a LangGraph agent that decides
 how to search). Both are scored with the same reference-free metrics, and a
@@ -23,7 +23,7 @@ from ocular.rag import eval_rag, index, pipeline, questions, rerank
 
 RESULTS = Path(__file__).resolve().parent / "results" / "rag_eval_phaseb.csv"
 
-# The retrieval configuration selected in Phase A.
+# The retrieval configuration selected in the retrieval experiments.
 INDEX = "fixed__MedEmbed-base-v0.1"
 MODE = "hybrid"
 RERANKER = rerank.DEFAULT_RERANKER
@@ -45,7 +45,7 @@ def _append(row: dict) -> None:
 
 def main() -> None:
     """Evaluate each pipeline on the selected config and append its metrics."""
-    parser = argparse.ArgumentParser(description="Phase B: basic vs agentic RAG.")
+    parser = argparse.ArgumentParser(description="Pipeline comparison: basic vs agentic RAG.")
     parser.add_argument("--index", default=INDEX, help="Index directory name (strategy__embedder).")
     parser.add_argument("--mode", default=MODE, help="Retrieval mode.")
     parser.add_argument("--rerank", choices=["on", "off"], default="on")
@@ -59,7 +59,7 @@ def main() -> None:
 
     qs = questions.load_questions()
     idx = index.load_index(index.INDEX_DIR / args.index)
-    print(f"Phase B on {args.index} ({args.mode}, rerank={rerank_label}) | {args.limit or len(qs)} questions")
+    print(f"pipeline comparison on {args.index} ({args.mode}, rerank={rerank_label}) | {args.limit or len(qs)} questions")
 
     for name in args.pipelines:
         print(f"\n[{name}] evaluating ...")

@@ -1,6 +1,6 @@
 """Basic and agentic RAG pipelines.
 
-The two ways of answering compared in Phase B:
+The two ways of answering compared in the pipeline comparison:
 
 - **basic** - one retrieval, then one generation. This is
   :func:`ocular.rag.generate.answer`, wrapped here so both pipelines share a name

@@ -26,7 +26,7 @@ from ocular import observability
 from ocular.classifier import explain
 from ocular.rag import index, llm, rerank, tools
 
-# The retrieval configuration chosen in Phase A, and the basic (non-agentic)
+# The retrieval configuration chosen in the retrieval experiments, and the basic (non-agentic)
 # retrieval settings the search tool uses under the hood.
 INDEX = "fixed__MedEmbed-base-v0.1"
 
@@ -296,7 +296,7 @@ def reply(
     performs a single retrieval per call under the selected configuration (fixed
     chunks, the biomedical embedder, hybrid retrieval, the gte reranker), so the
     assistant stays basic rather than agentic and does not run the reformulate and
-    search again loop that the Phase B evaluation in notebook 09 found brings no
+    search again loop that the pipeline comparison in notebook 09 found brings no
     gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
     forbids tool calls, so the model always ends on a written answer rather than an
     unanswered tool call.
