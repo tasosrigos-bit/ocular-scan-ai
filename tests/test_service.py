@@ -97,6 +97,25 @@ def test_reply_searches_then_streams_a_grounded_answer(offline):
     assert sources[0]["title"] == "Article A" and len(sources) == 5
 
 
+def test_reply_searches_once_per_question(offline, monkeypatch):
+    # Basic RAG: the model's query is searched, and a second search for the same
+    # question is declined.
+    def rounds(n):
+        if n < 3:
+            return [_tool_call("search_corpus", {"query": f"model query {n}"}, f"c{n}")]
+        return [AIMessageChunk(content="Drusen are deposits [1].")]
+
+    chat = offline(ScriptedChat(rounds))
+    queries = []
+    real = service.tools.retrieve.retrieve
+    monkeypatch.setattr("ocular.rag.retrieve.retrieve",
+                        lambda idx, query, **kw: queries.append(query) or real(idx, query, **kw))
+    _, sources = service.reply([{"role": "user", "content": "What are drusen?"}])
+    assert queries == ["model query 1"]
+    assert len(sources) == 5
+    assert "already been searched" in chat.inputs[-1][-1].content
+
+
 def test_reply_stops_after_the_round_cap(offline):
     # A model that only ever asks for a tool must still end, at MAX_TOOL_ROUNDS.
     chat = offline(ScriptedChat(lambda n: [_tool_call("classify_scan", {}, f"c{n}")]))

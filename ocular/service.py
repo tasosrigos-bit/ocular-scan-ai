@@ -208,7 +208,7 @@ def build_assistant(toolmap: dict, hits: list):
     langgraph.graph.state.CompiledStateGraph
         The compiled graph, run with ``{"messages": [...], "rounds": 0}``.
     """
-    from langchain_core.messages import ToolMessage, message_chunk_to_message
+    from langchain_core.messages import HumanMessage, ToolMessage, message_chunk_to_message
     from langgraph.config import get_stream_writer
     from langgraph.graph import END, START, StateGraph
 
@@ -256,19 +256,34 @@ def build_assistant(toolmap: dict, hits: list):
 
     def run_tools(state: AssistantState) -> dict:
         emit = get_stream_writer()
+        # Basic RAG: one search per question. The model writes the query, so a
+        # follow-up or a question about the scan is searched with what it refers to.
+        asked = max(i for i, m in enumerate(state["messages"]) if isinstance(m, HumanMessage))
+        searched = any(
+            isinstance(m, ToolMessage) and m.name == "search_corpus" for m in state["messages"][asked:]
+        )
         results = []
         for call in state["messages"][-1].tool_calls:
             searching = call["name"] == "search_corpus"
+            if searching and searched:
+                results.append(ToolMessage(
+                    content="The literature has already been searched for this question. "
+                            "Answer from the passages above.",
+                    tool_call_id=call["id"], name=call["name"],
+                ))
+                continue
+            args = call["args"]
             if searching:
-                emit({"status": f"Searching the literature for “{call['args'].get('query', '')}”"})
+                searched = True
+                emit({"status": f"Searching the literature for “{args.get('query', '')}”"})
             else:
                 emit({"status": "Classifying the scan"})
             before = len(hits)
             with observability.span(
-                call["name"], "RETRIEVER" if searching else "TOOL", call["args"]
+                call["name"], "RETRIEVER" if searching else "TOOL", args
             ) as tool_span:
                 try:
-                    result = toolmap[call["name"]].invoke(call["args"])
+                    result = toolmap[call["name"]].invoke(args)
                 except Exception as exc:
                     result = (
                         f"The {call['name']} tool failed ({type(exc).__name__}: {exc}). "
@@ -276,7 +291,7 @@ def build_assistant(toolmap: dict, hits: list):
                     )
                     tool_span.set_attributes({"error": f"{type(exc).__name__}: {exc}"})
                 tool_span.set_outputs(_as_documents(hits[before:]) if searching else result)
-            results.append(ToolMessage(content=result, tool_call_id=call["id"]))
+            results.append(ToolMessage(content=result, tool_call_id=call["id"], name=call["name"]))
         return {"messages": results}
 
     def route(state: AssistantState) -> str:
@@ -303,12 +318,15 @@ def reply(
     stops calling tools and writes the answer. The rounds are needed because the
     tools depend on each other: for a question about the scan the model classifies
     it first and only then searches the literature for what it found, so the two
-    calls happen one after another rather than at once. ``search_corpus`` still
-    performs a single retrieval per call under the selected configuration (hybrid
-    retrieval and the gte reranker over the chosen index), so the assistant stays
-    basic rather than agentic and does not run the reformulate and search again
-    loop that both pipeline comparisons, in notebook 09 and in
-    ``experiments/run_basic_vs_agentic.py``, found brings no gain at higher cost. The run is capped at ``MAX_TOOL_ROUNDS`` and the last round
+    calls happen one after another rather than at once. The search is basic RAG: one
+    search per question under the selected configuration (hybrid retrieval and the
+    gte reranker over the chosen index). The model writes the query rather than
+    passing the question verbatim, so a follow-up such as "are they linked to AMD?"
+    or a question about the uploaded scan is searched with what it refers to. A
+    second search for the same question is declined, so there is
+    no reformulate and search again loop, which both pipeline comparisons, in
+    notebook 09 and that script, found brings no gain at higher cost. The run is
+    capped at ``MAX_TOOL_ROUNDS`` and the last round
     forbids tool calls, so the model always ends on a written answer rather than an
     unanswered tool call.
 
