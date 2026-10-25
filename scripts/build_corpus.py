@@ -17,6 +17,10 @@ Usage
 
     python scripts/build_corpus.py               # the whole journal-whitelist scope
     python scripts/build_corpus.py --limit 500   # top 500 articles only
+
+    # every open-access article in scope, past the 9,999-id search cap, written as it
+    # is fetched so an interrupted build resumes where it stopped
+    python scripts/build_corpus.py --all --out-dir data/corpus_full
 """
 from __future__ import annotations
 
@@ -50,16 +54,31 @@ def main() -> None:
         action="store_true",
         help="Also keep CC BY-NC articles (only if the project stays non-commercial).",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Search the whole scope year by year, past the 9,999-id cap, and build it "
+             "resumably into --out-dir, fetching articles in batches.",
+    )
     args = parser.parse_args()
 
     journals = args.journals or corpus.OPHTHALMOLOGY_JOURNALS
     scope = f"{len(journals)} ophthalmology journals"
     print(f"building corpus from {scope}" + (f", up to {args.limit} articles" if args.limit else ""))
 
-    docs = corpus.build_corpus(
-        journals, limit=args.limit, allow_noncommercial=args.allow_noncommercial
-    )
-    corpus.save_corpus(docs, out_dir=args.out_dir)
+    if args.all:
+        pmcids = corpus.search_pmc_all(corpus._journal_term(journals))
+        print(f"{len(pmcids):,} open-access articles in scope")
+        outcomes = corpus.build_corpus_resumable(
+            pmcids, args.out_dir, allow_noncommercial=args.allow_noncommercial
+        )
+        print("outcomes:", dict(outcomes.most_common()))
+        docs = corpus.load_corpus(args.out_dir)
+    else:
+        docs = corpus.build_corpus(
+            journals, limit=args.limit, allow_noncommercial=args.allow_noncommercial
+        )
+        corpus.save_corpus(docs, out_dir=args.out_dir)
 
     total_chars = sum(len(d.full_text) for d in docs)
     licenses = Counter(d.license for d in docs)

@@ -35,10 +35,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,6 +89,10 @@ def _journal_term(journals: list[str]) -> str:
 
 # NCBI's polite-use rate cap: 10 requests/second with an API key, 3 without.
 _DELAY = 0.11 if os.getenv("NCBI_API_KEY") else 0.34
+# Request start times are spaced by _DELAY across all threads, so concurrent
+# fetches together stay under the cap.
+_RATE_LOCK = threading.Lock()
+_last_request = 0.0
 
 
 @dataclass
@@ -150,8 +156,13 @@ def _eutils_get(endpoint: str, params: dict[str, str]) -> bytes:
     if key := os.getenv("NCBI_API_KEY"):
         params["api_key"] = key
     url = f"{_EUTILS}/{endpoint}?{urllib.parse.urlencode(params)}"
-    time.sleep(_DELAY)
-    with urllib.request.urlopen(url, timeout=30) as resp:
+    global _last_request
+    with _RATE_LOCK:
+        wait = _last_request + _DELAY - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request = time.monotonic()
+    with urllib.request.urlopen(url, timeout=120) as resp:
         return resp.read()
 
 
@@ -291,7 +302,11 @@ def parse_jats(xml: bytes, pmcid: str) -> Document | None:
     article = root.find(".//article")
     if article is None:
         return None
+    return parse_article(article, pmcid)
 
+
+def parse_article(article: etree._Element, pmcid: str) -> Document | None:
+    """Parse one ``<article>`` element, the unit :func:`parse_jats` and a batch share."""
     title = _node_text(article.find(".//article-meta/title-group/article-title"))
     journal = _node_text(article.find(".//journal-meta//journal-title"))
     doi_el = article.find(".//article-meta/article-id[@pub-id-type='doi']")
@@ -397,6 +412,204 @@ def build_corpus(
     return docs
 
 
+# esearch returns at most this many ids per query, so a larger scope is split.
+_ESEARCH_CAP = 9999
+
+
+def _count(query: str) -> int:
+    body = _eutils_get(
+        "esearch.fcgi",
+        {"db": "pmc", "term": f'{query} AND "open access"[filter]', "retmax": "0", "retmode": "json"},
+    )
+    return int(json.loads(body)["esearchresult"]["count"])
+
+
+def search_pmc_all(query: str, first_year: int = 1990) -> list[str]:
+    """Find every open-access article id for a query, past the esearch cap.
+
+    A single esearch call stops at :data:`_ESEARCH_CAP` ids, so a larger scope is
+    searched one publication year at a time, newest first, with everything before
+    ``first_year`` as one final query. Each year must fit under the cap.
+
+    Parameters
+    ----------
+    query : str
+        A PMC search term, as for :func:`search_pmc`.
+    first_year : int, optional
+        The earliest year searched on its own.
+
+    Returns
+    -------
+    list of str
+        PubMed Central ids, newest year first, without duplicates.
+    """
+    if _count(query) <= _ESEARCH_CAP:
+        return search_pmc(query, retmax=_ESEARCH_CAP)
+    ranges = [(y, y) for y in range(time.gmtime().tm_year + 1, first_year - 1, -1)]
+    ranges.append((1800, first_year - 1))
+    ids: dict[str, None] = {}
+    for start, end in ranges:
+        term = f'{query} AND ("{start}"[pdat] : "{end}"[pdat])'
+        n = _count(term)
+        if n > _ESEARCH_CAP:
+            raise RuntimeError(f"{n} articles in {start}-{end}, over the esearch cap")
+        if n:
+            ids.update(dict.fromkeys(search_pmc(term, retmax=_ESEARCH_CAP)))
+    return list(ids)
+
+
+def fetch_articles(pmcids: list[str], retries: int = 3) -> dict[str, etree._Element]:
+    """Fetch several articles in one efetch call, keyed by PMC id.
+
+    One request per batch rather than per article is what makes a corpus of tens of
+    thousands of articles practical under NCBI's rate cap. A failed request is
+    retried with a growing pause before the error is raised.
+    """
+    numeric = ",".join(p.removeprefix("PMC") for p in pmcids)
+    for attempt in range(retries):
+        try:
+            xml = _eutils_get("efetch.fcgi", {"db": "pmc", "id": numeric, "retmode": "xml"})
+            break
+        except Exception:
+            if attempt == retries - 1:
+                raise
+            time.sleep(5 * (attempt + 1))
+    root = etree.fromstring(xml, etree.XMLParser(recover=True, huge_tree=True))
+    found: dict[str, etree._Element] = {}
+    for article in root.iter("article"):
+        pmcid = article.findtext(".//article-meta/article-id[@pub-id-type='pmcid']")
+        if pmcid:
+            found[pmcid.strip()] = article
+    return found
+
+
+def _doc_record(doc: Document) -> dict:
+    return {
+        "pmcid": doc.pmcid,
+        "title": doc.title,
+        "doi": doc.doi,
+        "license": doc.license,
+        "journal": doc.journal,
+        "sections": [list(s) for s in doc.sections],
+    }
+
+
+def build_corpus_resumable(
+    pmcids: list[str],
+    out_dir: Path,
+    allow_noncommercial: bool = False,
+    batch: int = 50,
+    workers: int = 3,
+) -> Counter[str]:
+    """Fetch, parse and licence-filter articles, writing each one as it arrives.
+
+    Built for a scope too large to hold in memory or to fetch in one sitting. Kept
+    articles are appended to ``corpus.jsonl`` and the outcome for every id to
+    ``progress.tsv``, so an interrupted build continues with the ids not yet done.
+    An id whose batch failed is recorded as an error and tried again on the next
+    run. ``metadata.csv`` is rewritten from ``corpus.jsonl`` at the end.
+
+    Parameters
+    ----------
+    pmcids : list of str
+        The ids to build, for example from :func:`search_pmc_all`.
+    out_dir : pathlib.Path
+        Destination directory.
+    allow_noncommercial : bool, optional
+        Keep ``CC BY-NC`` articles as well. Defaults to False.
+    batch : int, optional
+        Articles per efetch request.
+    workers : int, optional
+        Requests in flight at once. Their start times are still spaced to NCBI's
+        rate cap; the concurrency only overlaps the seconds each response takes.
+
+    Returns
+    -------
+    collections.Counter
+        How many ids ended in each outcome over all runs: ``kept``, ``empty``,
+        ``error`` or ``licence:<label>``.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    progress_path = out_dir / "progress.tsv"
+    outcome: dict[str, str] = {}
+    if progress_path.exists():
+        for line in progress_path.read_text().splitlines():
+            pmcid, sep, status = line.partition("\t")
+            if sep:
+                outcome[pmcid] = status
+    # A build killed mid-batch can leave a cut-off last line, or articles written
+    # before their progress line. Keep the complete records and count each as done.
+    corpus_path = out_dir / "corpus.jsonl"
+    if corpus_path.exists():
+        records, damaged = [], False
+        for line in corpus_path.read_text(encoding="utf-8").splitlines():
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                damaged = True
+        unique = {r["pmcid"]: r for r in records}
+        if damaged or len(unique) != len(records):
+            with corpus_path.open("w", encoding="utf-8") as fh:
+                for r in unique.values():
+                    fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        outcome.update(dict.fromkeys(unique, "kept"))
+    todo = [p for p in pmcids if outcome.get(p, "error") == "error"]
+    print(f"{len(pmcids) - len(todo)} already done, {len(todo)} to fetch")
+
+    def fetch(ids: list[str]) -> tuple[list[str], dict | None]:
+        try:
+            return ids, fetch_articles(ids)
+        except Exception as exc:
+            print(f"  batch at {ids[0]} failed, will retry next run: {exc}")
+            return ids, None
+
+    batches = [todo[i:i + batch] for i in range(0, len(todo), batch)]
+    with (out_dir / "corpus.jsonl").open("a", encoding="utf-8") as corpus_fh, \
+            progress_path.open("a", encoding="utf-8") as progress_fh, \
+            ThreadPoolExecutor(max_workers=workers) as pool:
+        # map keeps the batches in order, so the corpus is written in search order.
+        for ids, articles in tqdm(pool.map(fetch, batches), total=len(batches),
+                                  desc="fetching PMC", unit="batch"):
+            failed = articles is None
+            for pmcid in ids:
+                if failed:
+                    status = "error"
+                elif (article := articles.get(pmcid)) is None:
+                    status = "empty"
+                elif (doc := parse_article(article, pmcid)) is None:
+                    status = "empty"
+                elif not is_permitted(doc.license, allow_noncommercial):
+                    status = f"licence:{doc.license}"
+                else:
+                    corpus_fh.write(json.dumps(_doc_record(doc), ensure_ascii=False) + "\n")
+                    status = "kept"
+                outcome[pmcid] = status
+                progress_fh.write(f"{pmcid}\t{status}\n")
+            corpus_fh.flush()
+            progress_fh.flush()
+
+    save_metadata(load_corpus(out_dir), out_dir)
+    return Counter(outcome[p] for p in pmcids if p in outcome)
+
+
+def save_metadata(docs: list[Document], out_dir: Path) -> None:
+    """Write ``metadata.csv``, one row per article with its licence and size."""
+    pd.DataFrame(
+        [
+            {
+                "pmcid": doc.pmcid,
+                "title": doc.title,
+                "doi": doc.doi,
+                "license": doc.license,
+                "journal": doc.journal,
+                "n_sections": len(doc.sections),
+                "n_chars": len(doc.full_text),
+            }
+            for doc in docs
+        ]
+    ).to_csv(out_dir / "metadata.csv", index=False)
+
+
 def save_corpus(docs: list[Document], out_dir: Path | None = None) -> None:
     """Write the corpus to ``corpus.jsonl`` and a ``metadata.csv`` index.
 
@@ -417,35 +630,8 @@ def save_corpus(docs: list[Document], out_dir: Path | None = None) -> None:
 
     with (out_dir / "corpus.jsonl").open("w", encoding="utf-8") as fh:
         for doc in docs:
-            fh.write(
-                json.dumps(
-                    {
-                        "pmcid": doc.pmcid,
-                        "title": doc.title,
-                        "doi": doc.doi,
-                        "license": doc.license,
-                        "journal": doc.journal,
-                        "sections": [list(s) for s in doc.sections],
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-
-    pd.DataFrame(
-        [
-            {
-                "pmcid": doc.pmcid,
-                "title": doc.title,
-                "doi": doc.doi,
-                "license": doc.license,
-                "journal": doc.journal,
-                "n_sections": len(doc.sections),
-                "n_chars": len(doc.full_text),
-            }
-            for doc in docs
-        ]
-    ).to_csv(out_dir / "metadata.csv", index=False)
+            fh.write(json.dumps(_doc_record(doc), ensure_ascii=False) + "\n")
+    save_metadata(docs, out_dir)
 
 
 def load_corpus(corpus_dir: Path | None = None) -> list[Document]:
