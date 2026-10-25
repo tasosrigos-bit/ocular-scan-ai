@@ -108,7 +108,15 @@ def answer(
         hits = rerank.rerank(query, hits, model_name=rerank_model, k=k)
     else:
         hits = retrieve.retrieve(idx, query, k=k, mode=mode, candidates=candidates)
+    return answer_from(query, hits, model=model)
 
+
+def answer_from(query: str, hits: list[Hit], *, model: str = llm.MODEL) -> RAGResult:
+    """Answer a question from passages already retrieved.
+
+    The generation step of :func:`answer` on its own, so an experiment can retrieve
+    once and generate from the same passages several times.
+    """
     prompt = f"Context:\n{_format_context(hits)}\n\nQuestion: {query}"
     text = llm.generate(prompt, model=model, temperature=0.0, system=_SYSTEM)
     return RAGResult(query=query, answer=text, contexts=hits)
