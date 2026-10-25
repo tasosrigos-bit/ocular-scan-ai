@@ -76,6 +76,8 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[Message]
     scan_id: str | None = None
+    # One per conversation, made by the page, so MLflow groups its traces.
+    session_id: uuid.UUID | None = None
 
 
 class Source(BaseModel):
@@ -143,11 +145,12 @@ def predict(file: UploadFile) -> Prediction:
     )
 
 
-def _chat_args(req: ChatRequest) -> tuple[list[dict], str | None]:
+def _chat_args(req: ChatRequest) -> tuple[list[dict], str | None, str | None]:
     if not req.messages or req.messages[-1].role != "user":
         raise HTTPException(422, "The conversation must end with a user message.")
     path = _scan_path(req.scan_id)
-    return [m.model_dump() for m in req.messages], str(path) if path else None
+    session = req.session_id.hex if req.session_id else None
+    return [m.model_dump() for m in req.messages], str(path) if path else None, session
 
 
 def _failure(exc: Exception) -> str:
@@ -158,9 +161,9 @@ def _failure(exc: Exception) -> str:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    messages, path = _chat_args(req)
+    messages, path, session = _chat_args(req)
     try:
-        answer, sources = service.reply(messages, path)
+        answer, sources = service.reply(messages, path, session_id=session)
     except Exception as exc:
         raise HTTPException(502, _failure(exc))
     return ChatResponse(reply=answer, sources=sources)
@@ -176,7 +179,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     ``{"type": "error", "detail": ...}``. The answer is produced on a worker thread
     that reports its steps through a queue, which the response drains as it goes.
     """
-    messages, path = _chat_args(req)
+    messages, path, session = _chat_args(req)
     events: queue.Queue = queue.Queue()
 
     def work() -> None:
@@ -186,6 +189,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 path,
                 on_status=lambda text: events.put({"type": "status", "text": text}),
                 on_text=lambda text: events.put({"type": "text", "text": text}),
+                session_id=session,
             )
             events.put({"type": "answer", "reply": answer, "sources": sources})
         except Exception as exc:

@@ -62,6 +62,14 @@ class _NoSpan:
         pass
 
 
+def set_session(session_id: str | None) -> None:
+    """Mark the current trace as part of a conversation, so MLflow groups its traces."""
+    if _enabled and session_id:
+        import mlflow
+
+        mlflow.update_current_trace(session_id=session_id)
+
+
 @contextmanager
 def span(name: str, span_type: str = "UNKNOWN", inputs=None):
     """Open a traced span, nested under the current one if there is one.

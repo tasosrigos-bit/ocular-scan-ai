@@ -18,6 +18,8 @@ const state = {
   view: 'cam',
   messages: [],
   waiting: false,
+  // One conversation per page load; MLflow groups its questions under this id.
+  sessionId: crypto.randomUUID(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -371,7 +373,7 @@ async function ask(text) {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: state.messages, scan_id: state.scanId }),
+      body: JSON.stringify({ messages: state.messages, scan_id: state.scanId, session_id: state.sessionId }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'The assistant could not answer.');
     let data = null;

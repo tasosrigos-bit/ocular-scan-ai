@@ -238,10 +238,16 @@ def build_assistant(toolmap: dict, hits: list):
                 "tool_calls": [{"name": c["name"], "args": c["args"]} for c in answer.tool_calls],
             })
             if answer.usage_metadata:
+                # MLflow's own keys, so it sums the tokens per trace and prices them
+                # from the model name.
                 model_span.set_attributes({
-                    key: answer.usage_metadata[key]
-                    for key in ("input_tokens", "output_tokens", "total_tokens")
-                    if key in answer.usage_metadata
+                    "mlflow.llm.model": llm.MODEL,
+                    "mlflow.llm.provider": "gemini",
+                    "mlflow.chat.tokenUsage": {
+                        key: answer.usage_metadata[key]
+                        for key in ("input_tokens", "output_tokens", "total_tokens")
+                        if key in answer.usage_metadata
+                    },
                 })
         return {"messages": [answer], "rounds": round_ + 1}
 
@@ -284,7 +290,7 @@ def build_assistant(toolmap: dict, hits: list):
 
 
 def reply(
-    messages: list[dict], scan_path=None, on_status=None, on_text=None
+    messages: list[dict], scan_path=None, on_status=None, on_text=None, session_id=None
 ) -> tuple[str, list[dict]]:
     """Answer with basic RAG: a short run of tool calls, then a grounded answer.
 
@@ -347,6 +353,7 @@ def reply(
         "answer_question", "AGENT",
         {"question": question, "turns": len(messages), "scan_uploaded": scan_path is not None},
     ) as trace:
+        observability.set_session(session_id)
         final_state = None
         graph = build_assistant(toolmap, hits)
         for mode, event in graph.stream(

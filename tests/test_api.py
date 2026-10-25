@@ -92,6 +92,23 @@ def test_chat_rejects_bad_scan_ids(client, scan_id, status):
     assert _chat(client, scan_id=scan_id).status_code == status
 
 
+def test_chat_passes_the_session_to_the_assistant(client, monkeypatch):
+    seen = {}
+
+    def reply(messages, path, **kwargs):
+        seen.update(kwargs)
+        return "Drusen are deposits [1].", [SOURCE]
+
+    monkeypatch.setattr(service, "reply", reply)
+    session = uuid.uuid4()
+    _chat(client, session_id=str(session))
+    assert seen["session_id"] == session.hex
+
+
+def test_chat_rejects_a_malformed_session_id(client):
+    assert _chat(client, session_id="not-a-session").status_code == 422
+
+
 def test_chat_needs_a_question_last(client):
     res = _chat(client, messages=[{"role": "assistant", "content": "Hello."}])
     assert res.status_code == 422
@@ -112,7 +129,7 @@ def _events(res):
 
 
 def test_stream_sends_steps_then_text_then_the_answer(client, monkeypatch):
-    def reply(messages, path, on_status, on_text):
+    def reply(messages, path, on_status, on_text, session_id=None):
         on_status("Reading the question")
         on_status("Searching the literature for “DME”")
         on_text("It shows ")
@@ -132,7 +149,7 @@ def test_stream_sends_steps_then_text_then_the_answer(client, monkeypatch):
 
 
 def test_stream_ends_with_an_error_event_when_the_model_fails(client, monkeypatch):
-    def reply(messages, path, on_status, on_text):
+    def reply(messages, path, on_status, on_text, session_id=None):
         on_status("Reading the question")
         raise TimeoutError
 

@@ -93,4 +93,8 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
     assert search.inputs == {"query": "drusen deposits"}
     assert search.outputs[0]["id"] == "Article A - Results"
     assert search.outputs[0]["page_content"] == "drusen deposits drusen deposits"
-    assert second_round.attributes == {"input_tokens": 120, "output_tokens": 8, "total_tokens": 128}
+    assert second_round.attributes == {
+        "mlflow.llm.model": service.llm.MODEL,
+        "mlflow.llm.provider": "gemini",
+        "mlflow.chat.tokenUsage": {"input_tokens": 120, "output_tokens": 8, "total_tokens": 128},
+    }
