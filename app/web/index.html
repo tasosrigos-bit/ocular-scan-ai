@@ -54,32 +54,80 @@
           <div class="verdict">
             <div class="verdict-label" id="pred-label"></div>
             <div class="verdict-full" id="pred-full"></div>
+            <span class="badge" id="pred-badge" hidden>Uncertain</span>
             <div class="verdict-pct" id="pred-pct"></div>
           </div>
+          <p class="uncertain-text" id="pred-uncertain" hidden></p>
           <div class="bars" id="bars"></div>
         </div>
         <p class="note">Decision support only. The prediction does not replace a clinician's reading of the scan.</p>
       </div>
+
+      <form class="card" id="patient" autocomplete="off">
+        <div class="card-head">
+          <h2>Patient</h2>
+          <button type="button" class="link-button" id="patient-clear" hidden>Clear</button>
+        </div>
+        <div class="fields">
+          <label class="field"><span class="field-label">Age</span>
+            <input id="p-age" type="number" min="0" max="120" inputmode="numeric" placeholder="Years"></label>
+          <div class="field"><span class="field-label" id="p-eye-label">Eye</span>
+            <div class="seg" role="group" aria-labelledby="p-eye-label" data-field="eye">
+              <button type="button" data-value="right">Right</button>
+              <button type="button" data-value="left">Left</button>
+              <button type="button" data-value="both">Both</button>
+            </div></div>
+          <div class="field"><span class="field-label" id="p-diabetes-label">Diabetes</span>
+            <div class="seg" role="group" aria-labelledby="p-diabetes-label" data-field="diabetes">
+              <button type="button" data-value="yes">Yes</button>
+              <button type="button" data-value="no">No</button>
+              <button type="button" data-value="unknown">Unknown</button>
+            </div></div>
+          <label class="field"><span class="field-label">HbA1c %</span>
+            <input id="p-hba1c" type="number" min="3" max="20" step="0.1" inputmode="decimal" placeholder="Optional"></label>
+          <div class="field"><span class="field-label" id="p-onset-label">Onset</span>
+            <div class="seg" role="group" aria-labelledby="p-onset-label" data-field="onset">
+              <button type="button" data-value="sudden">Sudden</button>
+              <button type="button" data-value="gradual">Gradual</button>
+            </div></div>
+          <label class="field"><span class="field-label">Duration</span>
+            <input id="p-duration" type="text" maxlength="40" placeholder="e.g. 2 weeks"></label>
+        </div>
+        <div class="field"><span class="field-label" id="p-symptoms-label">Symptoms</span>
+          <div class="chips" id="p-symptoms" role="group" aria-labelledby="p-symptoms-label"></div></div>
+        <label class="field"><span class="field-label">Notes</span>
+          <textarea id="p-notes" rows="2" maxlength="300" placeholder="Other relevant history"></textarea></label>
+        <p class="note">Sent with every question. Do not enter names, dates of birth or record numbers.</p>
+      </form>
     </section>
 
-    <section class="chat" aria-label="Literature assistant">
+    <section class="chat" aria-label="Clinical assistant">
       <div class="chat-head">
         <div>
-          <h2>Literature assistant</h2>
-          <div class="sub">Answers grounded in the PMC ophthalmology corpus</div>
+          <h2>Clinical assistant</h2>
+          <div class="sub">Answers for the treating doctor, grounded in the PMC ophthalmology corpus</div>
         </div>
         <div class="context" id="context" hidden></div>
       </div>
 
+      <div class="alert" id="alert" role="alert" hidden>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg>
+        <div>
+          <strong>Urgent in-person assessment advised</strong>
+          <ul id="alert-list"></ul>
+          <div class="alert-source">Flagged from the symptoms entered, not by the model.</div>
+        </div>
+      </div>
+
       <div class="messages" id="messages" aria-live="polite">
-        <p class="empty" id="empty">Ask about the uploaded scan or any ophthalmology question. Clinical answers are grounded in the literature and cited.</p>
+        <p class="empty" id="empty">Enter the patient's symptoms, upload a B-scan, or ask any ophthalmology question. Answers are cited from the literature and end with recommended actions.</p>
       </div>
 
       <div class="suggestions" id="suggestions"></div>
 
       <form class="composer" id="composer">
-        <label for="ask" class="visually-hidden">Ask about this scan</label>
-        <input id="ask" type="text" autocomplete="off" placeholder="Ask about this scan or the condition">
+        <label for="ask" class="visually-hidden">Ask the clinical assistant</label>
+        <input id="ask" type="text" autocomplete="off" placeholder="Describe the symptoms or ask about the scan">
         <button type="submit" class="send" aria-label="Send question">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
         </button>
