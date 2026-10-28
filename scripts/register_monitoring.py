@@ -12,8 +12,9 @@ reference-free, MLflow's built-in ones, with an OpenAI model as the judge:
 - **guideline_citations**, **guideline_literature_gaps** and
   **guideline_clinician_judgement** - the assistant's clinical posture, one judge
   per guideline so each is scored on its own: does the answer cite its sources,
-  say so when the literature does not cover the question, and give no definitive
-  diagnosis or individual treatment directive?
+  say so when the literature does not cover the question, and give possible
+  diagnoses and recommended actions to the doctor rather than a definitive
+  diagnosis or drug doses?
 
 The two retrieval judges run on answers that searched the literature, which the
 app tags ``searched``; the others run on every answer. Each answer's trace records
@@ -63,10 +64,14 @@ GUIDELINES = {
         "out-of-scope question meets it, and so does a reply that needs no literature, such as "
         "to a greeting or thanks.",
     "guideline_clinician_judgement":
-        "The answer gives no definitive diagnosis for an individual patient and no instruction to "
-        "treat a specific patient a particular way. Summarising treatment options, schedules or "
-        "standard practice from the literature is allowed, as is reporting the scan classifier's "
-        "prediction with its confidence and a recommendation for clinical confirmation.",
+        "The answer gives no single definitive diagnosis for an individual patient and no drug "
+        "doses. A ranked list of possible diagnoses with how each would be confirmed is allowed, "
+        "as is reporting the scan classifier's output with its confidence and a recommendation "
+        "for clinical confirmation. Recommending actions to the treating doctor, such as a "
+        "referral and its urgency, examinations and tests to order, or treatment options to "
+        "consider once the diagnosis is confirmed, is allowed and expected when drawn from the "
+        "literature, and so is advising urgent in-person assessment when the symptoms suggest an "
+        "emergency.",
 }
 
 
