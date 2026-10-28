@@ -159,3 +159,21 @@ def test_a_call_to_an_unknown_tool_is_reported_back_to_the_model(offline):
     offline(ScriptedChat(rounds))
     answer, _ = service.reply([{"role": "user", "content": "Delete everything."}])
     assert answer == "I can only search and classify."
+
+
+def test_describe_patient_writes_the_filled_fields_only():
+    assert service.describe_patient(None) == ""
+    assert service.describe_patient({"symptoms": [], "notes": ""}) == ""
+    line = service.describe_patient({
+        "age": 74, "eye": "left", "diabetes": "no", "hba1c": 5.4, "onset": "sudden",
+        "duration": "2 weeks", "symptoms": ["distortion", "blurred vision"], "notes": None,
+    })
+    assert line == ("Patient details entered by the doctor: age 74; left eye; no diabetes; "
+                    "HbA1c 5.4%; sudden onset; for 2 weeks; symptoms: distortion, blurred vision.")
+
+
+def test_reply_puts_the_patient_details_before_the_question(offline):
+    chat = offline(ScriptedChat(lambda n: [AIMessageChunk(content="ok")]))
+    service.reply([{"role": "user", "content": "What next?"}], patient={"age": 60, "eye": "both"})
+    assert chat.inputs[0][-1].content == (
+        "Patient details entered by the doctor: age 60; both eyes.\n\nWhat next?")

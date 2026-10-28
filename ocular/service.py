@@ -198,6 +198,36 @@ def sources_of(hits) -> list[dict]:
     ]
 
 
+def describe_patient(patient: dict | None) -> str:
+    """Write the patient details the doctor entered on the page as one line of text.
+
+    The page sends the details as fields, and the assistant reads them as a line
+    before the question, so the model sees the same history on every turn without
+    the doctor retyping it. Empty fields are left out, and nothing is returned when
+    every field is empty.
+    """
+    if not patient:
+        return ""
+    parts = []
+    if patient.get("age") is not None:
+        parts.append(f"age {patient['age']}")
+    if patient.get("eye"):
+        parts.append(f"{patient['eye']} eye" if patient["eye"] != "both" else "both eyes")
+    if patient.get("diabetes"):
+        parts.append({"yes": "diabetic", "no": "no diabetes"}.get(patient["diabetes"], "diabetes unknown"))
+    if patient.get("hba1c") is not None:
+        parts.append(f"HbA1c {patient['hba1c']:g}%")
+    if patient.get("onset"):
+        parts.append(f"{patient['onset']} onset")
+    if patient.get("duration"):
+        parts.append(f"for {patient['duration']}")
+    if patient.get("symptoms"):
+        parts.append("symptoms: " + ", ".join(patient["symptoms"]))
+    if patient.get("notes"):
+        parts.append(f"notes: {patient['notes']}")
+    return "Patient details entered by the doctor: " + "; ".join(parts) + "." if parts else ""
+
+
 class AssistantState(TypedDict):
     """What the assistant graph carries from node to node.
 
@@ -339,7 +369,8 @@ def build_assistant(toolmap: dict, hits: list):
 
 
 def reply(
-    messages: list[dict], scan_path=None, on_status=None, on_text=None, session_id=None
+    messages: list[dict], scan_path=None, on_status=None, on_text=None, session_id=None,
+    patient=None,
 ) -> tuple[str, list[dict]]:
     """Answer with basic RAG: a short run of tool calls, then a grounded answer.
 
@@ -377,6 +408,10 @@ def reply(
         show the answer word by word. A round can write a little text and then call
         a tool after all, so text received before a later ``on_status`` step is a
         draft that step replaces, not part of the answer.
+    patient : dict, optional
+        The patient details entered on the page, written by :func:`describe_patient`
+        as a line before the latest question, so the model and the judges both read
+        the history the answer was given.
 
     Returns
     -------
@@ -387,6 +422,8 @@ def reply(
     """
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+    if details := describe_patient(patient):
+        messages = [*messages[:-1], {**messages[-1], "content": f"{details}\n\n{messages[-1]['content']}"}]
     hits: list = []
     toolmap = {
         "search_corpus": tools.make_search_corpus(

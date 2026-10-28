@@ -148,7 +148,7 @@ def _events(res):
 
 
 def test_stream_sends_steps_then_text_then_the_answer(client, monkeypatch):
-    def reply(messages, path, on_status, on_text, session_id=None):
+    def reply(messages, path, on_status, on_text, session_id=None, patient=None):
         on_status("Reading the question")
         on_status("Searching the literature for “DME”")
         on_text("It shows ")
@@ -168,10 +168,29 @@ def test_stream_sends_steps_then_text_then_the_answer(client, monkeypatch):
 
 
 def test_stream_ends_with_an_error_event_when_the_model_fails(client, monkeypatch):
-    def reply(messages, path, on_status, on_text, session_id=None):
+    def reply(messages, path, on_status, on_text, session_id=None, patient=None):
         on_status("Reading the question")
         raise TimeoutError
 
     monkeypatch.setattr(service, "reply", reply)
     events = _events(_chat(client, path="/api/chat/stream"))
     assert events[-1] == {"type": "error", "detail": "The language model could not answer (TimeoutError)."}
+
+
+def test_chat_passes_the_patient_details_to_the_assistant(client, monkeypatch):
+    seen = {}
+
+    def reply(messages, path, **kwargs):
+        seen.update(kwargs)
+        return "Refer urgently [1].", [SOURCE]
+
+    monkeypatch.setattr(service, "reply", reply)
+    _chat(client, patient={"age": 74, "eye": "left", "symptoms": ["distortion"]})
+    assert seen["patient"]["age"] == 74 and seen["patient"]["symptoms"] == ["distortion"]
+    _chat(client)
+    assert seen["patient"] is None
+
+
+@pytest.mark.parametrize("patient", [{"age": 400}, {"eye": "middle"}, {"notes": "x" * 301}])
+def test_chat_rejects_out_of_range_patient_details(client, patient):
+    assert _chat(client, patient=patient).status_code == 422

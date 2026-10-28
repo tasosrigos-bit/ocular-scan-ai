@@ -7,8 +7,8 @@ there is one server to start and no cross-origin setup.
 ``POST /api/predict`` takes an uploaded B-scan, classifies it and returns the
 prediction with the model input and its Grad-CAM overlay as PNG data URLs, plus a
 ``scan_id``. ``POST /api/chat`` takes the conversation, kept on the client, and the
-``scan_id`` of the scan it is about, and returns the grounded answer with the
-passages it cites. ``POST /api/chat/stream`` takes the same request and streams the
+``scan_id`` of the scan it is about, with the patient details entered on the page,
+and returns the grounded answer with the passages it cites. ``POST /api/chat/stream`` takes the same request and streams the
 assistant's progress and the answer's text as they are produced, one JSON object
 per line, ending with the full answer and its sources.
 The service holds no conversation state, only the uploaded scans, so the assistant's
@@ -28,12 +28,12 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ocular import observability, service
 from ocular.rag import tools
@@ -83,11 +83,25 @@ class Message(BaseModel):
     content: str
 
 
+class Patient(BaseModel):
+    # What the doctor enters in the page's patient card. No field holds a name, a
+    # date of birth or a record number, so nothing identifying reaches the model.
+    age: int | None = Field(None, ge=0, le=120)
+    eye: Literal["right", "left", "both"] | None = None
+    diabetes: Literal["yes", "no", "unknown"] | None = None
+    hba1c: float | None = Field(None, ge=3, le=20)
+    onset: Literal["sudden", "gradual"] | None = None
+    duration: str | None = Field(None, max_length=40)
+    symptoms: list[Annotated[str, Field(max_length=40)]] = Field(default_factory=list, max_length=16)
+    notes: str | None = Field(None, max_length=300)
+
+
 class ChatRequest(BaseModel):
     messages: list[Message]
     scan_id: str | None = None
     # One per conversation, made by the page, so MLflow groups its traces.
     session_id: uuid.UUID | None = None
+    patient: Patient | None = None
 
 
 class Source(BaseModel):
@@ -155,12 +169,16 @@ def predict(file: UploadFile, session_id: uuid.UUID | None = Form(None)) -> Pred
     )
 
 
-def _chat_args(req: ChatRequest) -> tuple[list[dict], str | None, str | None]:
+def _chat_args(req: ChatRequest) -> tuple[list[dict], str | None, dict]:
+    """The conversation, the scan's path, and the keyword arguments for ``reply``."""
     if not req.messages or req.messages[-1].role != "user":
         raise HTTPException(422, "The conversation must end with a user message.")
     path = _scan_path(req.scan_id)
-    session = req.session_id.hex if req.session_id else None
-    return [m.model_dump() for m in req.messages], str(path) if path else None, session
+    extra = {
+        "session_id": req.session_id.hex if req.session_id else None,
+        "patient": req.patient.model_dump() if req.patient else None,
+    }
+    return [m.model_dump() for m in req.messages], str(path) if path else None, extra
 
 
 def _failure(exc: Exception) -> str:
@@ -171,9 +189,9 @@ def _failure(exc: Exception) -> str:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    messages, path, session = _chat_args(req)
+    messages, path, extra = _chat_args(req)
     try:
-        answer, sources = service.reply(messages, path, session_id=session)
+        answer, sources = service.reply(messages, path, **extra)
     except Exception as exc:
         raise HTTPException(502, _failure(exc))
     return ChatResponse(reply=answer, sources=sources)
@@ -189,7 +207,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     ``{"type": "error", "detail": ...}``. The answer is produced on a worker thread
     that reports its steps through a queue, which the response drains as it goes.
     """
-    messages, path, session = _chat_args(req)
+    messages, path, extra = _chat_args(req)
     events: queue.Queue = queue.Queue()
 
     def work() -> None:
@@ -199,7 +217,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 path,
                 on_status=lambda text: events.put({"type": "status", "text": text}),
                 on_text=lambda text: events.put({"type": "text", "text": text}),
-                session_id=session,
+                **extra,
             )
             events.put({"type": "answer", "reply": answer, "sources": sources})
         except Exception as exc:
