@@ -82,25 +82,14 @@ section-level chunks with EmbeddingGemma.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph Classifier
-        A[B-scan upload] --> B[Crop to retina,<br/>flatten curvature,<br/>resize 384×256]
-        B --> C[ConvNeXt-Tiny]
-        C --> D[CNV / DME / drusen / normal<br/>probabilities]
-        C --> E[Grad-CAM heat map]
-    end
-    subgraph Assistant
-        Q[General question] --> G[LangGraph agent<br/>Gemini]
-        G -- search_corpus --> H[Hybrid retrieval<br/>dense + BM25, RRF]
-        H --> R[Cross-encoder rerank]
-        R --> G
-        G --> S[Cited answer,<br/>doses removed]
-        H <--> QD[(Qdrant<br/>8,535 PMC articles)]
-    end
-    C -. traces .-> M[(MLflow:<br/>traces, prompt registry,<br/>LLM judges)]
-    G -. traces .-> M
-```
+![Architecture: the classifier pipeline from upload through preprocessing and ConvNeXt-Tiny to the class probabilities and Grad-CAM; the literature assistant as a LangGraph graph, START to the model node, which calls the tools node for search_corpus (hybrid retrieval over Qdrant, then a cross-encoder rerank) and returns to the model, then END, the dose filter and the cited answer; both traced to MLflow](docs/architecture.png)
+
+The assistant is a LangGraph graph of two nodes in a loop. The **model** node asks
+Gemini for the next step. When it calls `search_corpus`, the **tools** node runs the
+hybrid search and the reranker, numbers the passages and hands them back. The model
+then writes the answer, with tool calls switched off on the last of at most two
+rounds, so every run ends on a written answer. The diagram's source is
+[docs/architecture.tex](docs/architecture.tex), drawn in TikZ.
 
 The two halves are deliberately separate. The classifier's output appears on the page
 next to the scan, and the assistant never sees the scan or its prediction. The
