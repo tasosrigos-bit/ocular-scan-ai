@@ -103,6 +103,13 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
   overflow: hidden;
 }
 .stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* Replace sits on the scan, so the card header keeps one line for the views */
+.stage-button {
+  position: absolute; top: 8px; right: 8px;
+  min-height: 30px; padding: 0 10px; border: 0; border-radius: 6px;
+  background: rgba(11, 15, 18, 0.62); color: #FFFFFF; font-size: 12px; cursor: pointer;
+}
+.stage-button:hover { background: rgba(11, 15, 18, 0.8); }
 .drop {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   background: var(--surface); color: var(--accent);
@@ -365,34 +372,62 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 #patient .card-head { min-height: 40px; }
 
 /* One screen from 960px wide: scan and prediction, patient, and the chat side by
-   side, filling the window below the header. The page itself never scrolls; a
-   column that does not fit scrolls inside, and the chat keeps its question box at
-   the bottom. Spacing is tighter so the three fit on a laptop screen. */
+   side, filling the window below the header. The page itself never scrolls. Each
+   column reaches the bottom of the window: the scan and the notes box take the
+   height that is left, and the chat keeps its question box at the bottom. */
 @media (min-width: 960px) {
   html, body { height: 100%; }
   body { display: flex; flex-direction: column; overflow: hidden; }
-  .topbar { flex: none; padding: 10px 24px; }
-  .logo { width: 28px; height: 28px; }
-  .brand { font-size: 16px; }
+  .topbar { flex: none; }
   .layout {
     flex: 1 1 auto; min-height: 0; width: 100%; max-width: 1600px;
-    padding: 12px 24px;
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px;
+    padding: 20px 32px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
   }
-  .scan-column, .patient-column { min-height: 0; overflow-y: auto; gap: 12px; }
-  .patient-column > .card { flex: 1 0 auto; }
-  /* The scan keeps 3:2 when there is room and gets shorter when there is not, so
-     the prediction under it stays in view. */
-  .scan-column > .card:first-child { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .scan-column .stage { flex: 0 1 auto; min-height: 96px; }
-  #prediction { flex: none; }
+  .scan-column, .patient-column { min-height: 0; overflow-y: auto; }
   .chat { min-height: 0; }
-  .messages { min-height: 0; padding: 16px; gap: 14px; }
+  .messages { min-height: 0; }
+  .views button, .link-button { min-height: 30px; font-size: 12px; padding: 0 10px; }
+
+  /* The scan card grows to the prediction card, and the scan inside it grows with
+     it. Short windows shrink the scan instead, never below 96px. */
+  .scan-column > .card:first-child { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .scan-column .stage { aspect-ratio: auto; flex: 1 1 0; min-height: 96px; }
+  #prediction { flex: none; }
+
+  /* The patient card fills its column, and the notes box takes the space below the
+     symptoms, with the note kept at the bottom. */
+  #patient { flex: 1 0 auto; display: flex; flex-direction: column; }
+  #patient > .field:has(#p-notes) { flex: 1 1 auto; }
+  #p-notes { flex: 1 1 auto; min-height: 64px; resize: none; }
+
+  /* Age and HbA1c are short numbers, so they share a row with onset; diabetes gets
+     a full row, as its three buttons do not fit in a third. */
+  .fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-areas: "age hba1c onset" "eye eye duration" "diabetes diabetes diabetes";
+  }
+  .fields > :has(#p-age) { grid-area: age; }
+  .fields > :has([data-field="eye"]) { grid-area: eye; }
+  .fields > :has([data-field="diabetes"]) { grid-area: diabetes; }
+  .fields > :has(#p-hba1c) { grid-area: hba1c; }
+  .fields > :has([data-field="onset"]) { grid-area: onset; }
+  .fields > :has(#p-duration) { grid-area: duration; }
+}
+
+/* Tighter spacing and smaller controls where the window is narrow or short, so the
+   three columns still fit on a small laptop screen. */
+@media (min-width: 960px) and (max-width: 1279px), (min-width: 960px) and (max-height: 799px) {
+  .topbar { padding: 10px 24px; }
+  .logo { width: 28px; height: 28px; }
+  .brand { font-size: 16px; }
+  .layout { padding: 12px 24px; gap: 12px; }
+  .scan-column, .patient-column { gap: 12px; }
+  .messages { padding: 16px; gap: 14px; }
 
   .card { padding: 14px 16px; }
   .card-head { margin-bottom: 10px; gap: 8px; }
   .views { margin-left: 0; }
-  .views button, .link-button { min-height: 30px; font-size: 12px; padding: 0 10px; }
   #patient .card-head { min-height: 30px; margin-bottom: 6px; }
   .drop svg { width: 32px; height: 32px; }
   .drop-title { font-size: 14px; }
@@ -406,24 +441,12 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
   .bars { gap: 6px; }
   .note { margin-top: 10px; padding-top: 8px; font-size: 12px; }
 
-  /* Three rows: age and HbA1c, short numbers, share half the width; diabetes gets
-     a full row, as its three buttons do not fit in half. */
-  .fields {
-    gap: 8px 10px; margin-bottom: 8px;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
-    grid-template-areas: "age hba1c onset" "eye eye duration" "diabetes diabetes diabetes";
-  }
-  .fields > :has(#p-age) { grid-area: age; }
-  .fields > :has([data-field="eye"]) { grid-area: eye; }
-  .fields > :has([data-field="diabetes"]) { grid-area: diabetes; }
-  .fields > :has(#p-hba1c) { grid-area: hba1c; }
-  .fields > :has([data-field="onset"]) { grid-area: onset; }
-  .fields > :has(#p-duration) { grid-area: duration; }
+  .fields { gap: 8px 10px; margin-bottom: 8px; }
   #patient > .field + .field { margin-top: 8px; }
   .field { gap: 3px; }
   .field-label { font-size: 11px; }
   .field input, .field textarea { min-height: 32px; padding: 5px 8px; font-size: 13px; }
-  .field textarea { min-height: 0; height: 32px; }
+  #p-notes { min-height: 40px; }
   .seg button { min-height: 26px; padding: 0 4px; font-size: 12px; }
   .chip { min-height: 26px; padding: 0 8px; font-size: 12px; }
   .chips { gap: 4px; }

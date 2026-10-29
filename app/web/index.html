@@ -23,7 +23,6 @@
       <div class="card">
         <div class="card-head">
           <h2>OCT B-scan</h2>
-          <button type="button" class="link-button" id="replace" hidden>Replace</button>
           <div class="views" role="group" aria-label="Scan view">
             <button type="button" data-view="orig" disabled>Original</button>
             <button type="button" data-view="input" disabled>Model input</button>
@@ -39,6 +38,7 @@
         </button>
         <div class="stage" id="viewer" hidden>
           <img id="viewer-img" alt="">
+          <button type="button" class="stage-button" id="replace" hidden>Replace scan</button>
           <div class="busy" id="busy" hidden><span class="spinner" aria-hidden="true"></span>Analysing scan…</div>
         </div>
         <p class="error" id="scan-error" role="alert" hidden></p>
