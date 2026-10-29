@@ -51,13 +51,14 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .brand { font-size: 18px; letter-spacing: -0.01em; }
 .brand strong { font-weight: 600; }
 
-/* Two columns, 40/60, stacking below about 1000px */
+/* Narrow screens: the scan, the patient and the chat stacked. From 960px wide the
+   one-screen layout at the end of this file takes over. */
 .layout {
   max-width: 1376px; margin: 0 auto;
   padding: 24px 32px 40px;
   display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch;
 }
-.scan-column { flex: 2 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.scan-column, .patient-column { flex: 2 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .chat { flex: 3 1 600px; min-width: 0; }
 
 .card {
@@ -362,3 +363,75 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 #patient-clear { margin-left: auto; }
 /* The Clear link appears once something is entered; the head keeps its height so nothing moves. */
 #patient .card-head { min-height: 40px; }
+
+/* One screen from 960px wide: scan and prediction, patient, and the chat side by
+   side, filling the window below the header. The page itself never scrolls; a
+   column that does not fit scrolls inside, and the chat keeps its question box at
+   the bottom. Spacing is tighter so the three fit on a laptop screen. */
+@media (min-width: 960px) {
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { flex: none; padding: 10px 24px; }
+  .logo { width: 28px; height: 28px; }
+  .brand { font-size: 16px; }
+  .layout {
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 1600px;
+    padding: 12px 24px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px;
+  }
+  .scan-column, .patient-column { min-height: 0; overflow-y: auto; gap: 12px; }
+  .patient-column > .card { flex: 1 0 auto; }
+  /* The scan keeps 3:2 when there is room and gets shorter when there is not, so
+     the prediction under it stays in view. */
+  .scan-column > .card:first-child { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .scan-column .stage { flex: 0 1 auto; min-height: 96px; }
+  #prediction { flex: none; }
+  .chat { min-height: 0; }
+  .messages { min-height: 0; padding: 16px; gap: 14px; }
+
+  .card { padding: 14px 16px; }
+  .card-head { margin-bottom: 10px; gap: 8px; }
+  .views { margin-left: 0; }
+  .views button, .link-button { min-height: 30px; font-size: 12px; padding: 0 10px; }
+  #patient .card-head { min-height: 30px; margin-bottom: 6px; }
+  .drop svg { width: 32px; height: 32px; }
+  .drop-title { font-size: 14px; }
+  .drop-hint { font-size: 12px; }
+  .pred-empty { min-height: 0; padding: 12px 14px; }
+  .pred-empty-title { font-size: 16px; }
+  .pred-empty-text { font-size: 13px; }
+  .verdict { margin-bottom: 12px; gap: 10px; }
+  .verdict-label { font-size: 26px; }
+  .verdict-pct { font-size: 17px; }
+  .bars { gap: 6px; }
+  .note { margin-top: 10px; padding-top: 8px; font-size: 12px; }
+
+  /* Three rows: age and HbA1c, short numbers, share half the width; diabetes gets
+     a full row, as its three buttons do not fit in half. */
+  .fields {
+    gap: 8px 10px; margin-bottom: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-areas: "age hba1c onset" "eye eye duration" "diabetes diabetes diabetes";
+  }
+  .fields > :has(#p-age) { grid-area: age; }
+  .fields > :has([data-field="eye"]) { grid-area: eye; }
+  .fields > :has([data-field="diabetes"]) { grid-area: diabetes; }
+  .fields > :has(#p-hba1c) { grid-area: hba1c; }
+  .fields > :has([data-field="onset"]) { grid-area: onset; }
+  .fields > :has(#p-duration) { grid-area: duration; }
+  #patient > .field + .field { margin-top: 8px; }
+  .field { gap: 3px; }
+  .field-label { font-size: 11px; }
+  .field input, .field textarea { min-height: 32px; padding: 5px 8px; font-size: 13px; }
+  .field textarea { min-height: 0; height: 32px; }
+  .seg button { min-height: 26px; padding: 0 4px; font-size: 12px; }
+  .chip { min-height: 26px; padding: 0 8px; font-size: 12px; }
+  .chips { gap: 4px; }
+  #patient .note { margin-top: 8px; padding-top: 8px; font-size: 11px; }
+
+  .chat-head { padding: 12px 16px; }
+  .alert { margin: 10px 16px 0; padding: 10px 12px; font-size: 13px; }
+  .composer { padding: 10px 16px 14px; }
+  .composer input { height: 40px; }
+  .send { width: 40px; height: 40px; }
+}

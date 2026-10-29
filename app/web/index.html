@@ -62,7 +62,9 @@
         </div>
         <p class="note">Decision support only. The prediction does not replace a clinician's reading of the scan.</p>
       </div>
+    </section>
 
+    <section class="patient-column" aria-label="Patient">
       <form class="card" id="patient" autocomplete="off">
         <div class="card-head">
           <h2>Patient</h2>
@@ -70,7 +72,7 @@
         </div>
         <div class="fields">
           <label class="field"><span class="field-label">Age</span>
-            <input id="p-age" type="number" min="0" max="120" inputmode="numeric" placeholder="Years"></label>
+            <input id="p-age" type="number" min="0" max="120" inputmode="numeric" placeholder="yrs"></label>
           <div class="field"><span class="field-label" id="p-eye-label">Eye</span>
             <div class="seg" role="group" aria-labelledby="p-eye-label" data-field="eye">
               <button type="button" data-value="right">Right</button>
@@ -83,8 +85,8 @@
               <button type="button" data-value="no">No</button>
               <button type="button" data-value="unknown">Unknown</button>
             </div></div>
-          <label class="field"><span class="field-label">HbA1c %</span>
-            <input id="p-hba1c" type="number" min="3" max="20" step="0.1" inputmode="decimal" placeholder="Optional"></label>
+          <label class="field"><span class="field-label">HbA1c</span>
+            <input id="p-hba1c" type="number" min="3" max="20" step="0.1" inputmode="decimal" placeholder="%"></label>
           <div class="field"><span class="field-label" id="p-onset-label">Onset</span>
             <div class="seg" role="group" aria-labelledby="p-onset-label" data-field="onset">
               <button type="button" data-value="sudden">Sudden</button>
@@ -97,7 +99,7 @@
           <div class="chips" id="p-symptoms" role="group" aria-labelledby="p-symptoms-label"></div></div>
         <label class="field"><span class="field-label">Notes</span>
           <textarea id="p-notes" rows="2" maxlength="300" placeholder="Other relevant history"></textarea></label>
-        <p class="note">Sent with every question. Do not enter names, dates of birth or record numbers.</p>
+        <p class="note">Sent with each question. No names or IDs.</p>
       </form>
     </section>
 
