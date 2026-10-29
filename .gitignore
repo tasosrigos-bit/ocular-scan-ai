@@ -38,6 +38,8 @@ data/corpus/*
 !data/eval/
 data/eval/*
 !data/eval/questions_full.jsonl
+# The clinical behaviour scenarios, written by hand; scans are named, never stored.
+!data/eval/scenarios.jsonl
 
 # Model weights: each ConvNeXt checkpoint is ~110 MB, over GitHub's 100 MB
 # per-file limit. The notebooks reproduce every reported number from the CSVs.
