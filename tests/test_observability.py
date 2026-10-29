@@ -77,7 +77,8 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
         answer.usage_metadata = {"input_tokens": 120, "output_tokens": 8, "total_tokens": 128}
         return [answer]
 
-    monkeypatch.setattr(service, "chat_model", lambda: ScriptedChat(rounds))
+    chat = ScriptedChat(rounds)
+    monkeypatch.setattr(service, "chat_model", lambda: chat)
     service.reply([{"role": "user", "content": "What are drusen?"}])
 
     assert [(s.name, s.span_type) for s in recorded] == [

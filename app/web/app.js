@@ -14,37 +14,12 @@ const SPOKEN = { CNV: 'CNV', DME: 'DME', DRUSEN: 'drusen', NORMAL: 'a normal sca
 const UNCERTAIN_BELOW = 0.7;
 const UNCERTAIN_MARGIN = 0.3;
 
-const SYMPTOMS = [
-  'Blurred vision', 'Distortion', 'Vision loss', 'Flashes', 'Floaters', 'Shadow or curtain',
-  'Eye pain', 'Red eye', 'Photophobia', 'Halos', 'Headache', 'Jaw pain',
-];
-// Combinations that call for urgent in-person assessment, checked on the page as the
-// doctor enters them, so the warning never depends on what the model writes.
-const RED_FLAGS = [
-  { when: (p, s) => s.has('shadow or curtain') && (s.has('flashes') || s.has('floaters')),
-    text: 'Flashes or floaters with a shadow: rule out a retinal detachment.' },
-  { when: (p, s) => s.has('vision loss') && p.onset === 'sudden',
-    text: 'Sudden loss of vision: rule out a retinal artery occlusion.' },
-  { when: (p, s) => s.has('red eye') && s.has('eye pain') && s.has('halos'),
-    text: 'Painful red eye with halos: rule out acute angle closure.' },
-  { when: (p, s) => s.has('headache') && s.has('jaw pain') && p.age >= 50,
-    text: 'Headache and jaw pain over 50: rule out giant cell arteritis.' },
-  { when: (p, s) => s.has('distortion') && p.onset === 'sudden',
-    text: 'Sudden distortion: rule out active neovascular AMD.' },
-];
-
-const emptyPatient = () => ({
-  age: null, eye: null, diabetes: null, hba1c: null, onset: null, duration: '', symptoms: [], notes: '',
-});
-
 const state = {
-  scanId: null,
   label: null,
   images: { orig: null, input: null, cam: null },
   view: 'cam',
   messages: [],
   waiting: false,
-  patient: emptyPatient(),
   // One conversation per page load; MLflow groups its questions under this id.
   sessionId: crypto.randomUUID(),
 };
@@ -57,10 +32,7 @@ const els = {
   predLabel: $('pred-label'), predFull: $('pred-full'), predPct: $('pred-pct'), bars: $('bars'),
   predEmpty: $('pred-empty'), predEmptyTitle: $('pred-empty-title'), predEmptyText: $('pred-empty-text'),
   predResult: $('pred-result'), predBadge: $('pred-badge'), predUncertain: $('pred-uncertain'),
-  patient: $('patient'), patientClear: $('patient-clear'), age: $('p-age'), hba1c: $('p-hba1c'),
-  duration: $('p-duration'), notes: $('p-notes'), symptoms: $('p-symptoms'),
-  alert: $('alert'), alertList: $('alert-list'),
-  context: $('context'), messages: $('messages'), empty: $('empty'),
+  messages: $('messages'), empty: $('empty'),
   suggestions: $('suggestions'), composer: $('composer'), ask: $('ask'),
   send: document.querySelector('.send'),
 };
@@ -135,17 +107,6 @@ function renderMarkdown(text, { cite = false } = {}) {
   return out.join('');
 }
 
-// The heading that opens the answer's closing list, in any of the forms the model
-// writes it: "### Recommended actions", "**Recommended actions**" or "Recommended actions:".
-const ACTIONS_HEADING = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*Recommended actions\s*:?\s*(?:\*\*)?\s*:?\s*$/im;
-
-// Split an answer into its body and its recommended actions, if it has them.
-function splitActions(text) {
-  const m = text.match(ACTIONS_HEADING);
-  if (!m) return [text, null];
-  return [text.slice(0, m.index), text.slice(m.index + m[0].length)];
-}
-
 // ---------------------------------------------------------------------------
 // Scan
 // ---------------------------------------------------------------------------
@@ -202,7 +163,6 @@ function renderPrediction(res) {
     : '';
   els.predEmpty.hidden = true;
   els.predResult.hidden = false;
-  renderContext();
 }
 
 async function handleFile(file) {
@@ -214,7 +174,6 @@ async function handleFile(file) {
   els.scanError.hidden = true;
   if (state.images.orig) URL.revokeObjectURL(state.images.orig);
   state.images = { orig: URL.createObjectURL(file), input: null, cam: null };
-  state.scanId = null;
   state.label = null;
 
   els.drop.hidden = true;
@@ -222,7 +181,6 @@ async function handleFile(file) {
   els.replace.hidden = false;
   enableViews(false);
   showPredictionMessage('Analysing scan…', 'The classifier and Grad-CAM are running on the uploaded B-scan.');
-  renderContext();
   els.busy.hidden = false;
   els.img.src = state.images.orig;
   renderSuggestions();
@@ -234,7 +192,6 @@ async function handleFile(file) {
     const res = await fetch('/api/predict', { method: 'POST', body });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'The scan could not be analysed.');
     const data = await res.json();
-    state.scanId = data.scan_id;
     state.label = data.label;
     state.images.input = data.model_input;
     state.images.cam = data.gradcam;
@@ -255,105 +212,6 @@ function showScanError(message) {
   els.scanError.textContent = message;
   els.scanError.hidden = false;
 }
-
-// ---------------------------------------------------------------------------
-// Patient
-// ---------------------------------------------------------------------------
-
-// The details actually entered, in the shape /api/chat expects, or null when the
-// card is empty, so an empty card sends nothing.
-function patientPayload() {
-  const p = state.patient;
-  const out = {};
-  if (p.age !== null) out.age = p.age;
-  for (const k of ['eye', 'diabetes', 'onset']) if (p[k]) out[k] = p[k];
-  if (p.hba1c !== null) out.hba1c = p.hba1c;
-  if (p.duration.trim()) out.duration = p.duration.trim();
-  if (p.symptoms.length) out.symptoms = p.symptoms;
-  if (p.notes.trim()) out.notes = p.notes.trim();
-  return Object.keys(out).length ? out : null;
-}
-
-function readNumber(input, min, max) {
-  const v = input.valueAsNumber;
-  return Number.isFinite(v) && v >= min && v <= max ? v : null;
-}
-
-function renderSymptomChips() {
-  els.symptoms.replaceChildren(...SYMPTOMS.map((name) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'chip';
-    b.textContent = name;
-    b.setAttribute('aria-pressed', String(state.patient.symptoms.includes(name.toLowerCase())));
-    return b;
-  }));
-}
-
-function renderRedFlags() {
-  const p = state.patient;
-  const flags = RED_FLAGS.filter((f) => f.when(p, new Set(p.symptoms))).map((f) => f.text);
-  els.alertList.replaceChildren(...flags.map((text) => {
-    const li = document.createElement('li');
-    li.textContent = text;
-    return li;
-  }));
-  els.alert.hidden = !flags.length;
-}
-
-function renderContext() {
-  const parts = [];
-  if (state.label) parts.push(`${state.label} scan`);
-  if (patientPayload()) parts.push('patient details');
-  els.context.textContent = `Context: ${parts.join(' · ')}`;
-  els.context.hidden = !parts.length;
-}
-
-function patientChanged() {
-  els.patientClear.hidden = !patientPayload();
-  renderRedFlags();
-  renderContext();
-  renderSuggestions();
-}
-
-els.patient.addEventListener('submit', (e) => e.preventDefault());
-els.patient.addEventListener('input', (e) => {
-  const p = state.patient;
-  if (e.target === els.age) p.age = readNumber(els.age, 0, 120);
-  else if (e.target === els.hba1c) p.hba1c = readNumber(els.hba1c, 3, 20);
-  else if (e.target === els.duration) p.duration = els.duration.value;
-  else if (e.target === els.notes) p.notes = els.notes.value;
-  else return;
-  patientChanged();
-});
-els.patient.addEventListener('click', (e) => {
-  const seg = e.target.closest('.seg button');
-  const chip = e.target.closest('.chip');
-  if (seg) {
-    // A segmented choice; pressing the chosen one again clears it.
-    const field = seg.parentElement.dataset.field;
-    state.patient[field] = state.patient[field] === seg.dataset.value ? null : seg.dataset.value;
-    for (const b of seg.parentElement.querySelectorAll('button')) {
-      b.setAttribute('aria-pressed', String(b.dataset.value === state.patient[field]));
-    }
-  } else if (chip) {
-    const name = chip.textContent.toLowerCase();
-    const list = state.patient.symptoms;
-    const on = !list.includes(name);
-    state.patient.symptoms = on ? [...list, name] : list.filter((s) => s !== name);
-    chip.setAttribute('aria-pressed', String(on));
-  } else {
-    return;
-  }
-  patientChanged();
-});
-els.patientClear.addEventListener('click', () => {
-  state.patient = emptyPatient();
-  els.patient.reset();
-  for (const b of els.patient.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', 'false');
-  renderSymptomChips();
-  patientChanged();
-});
 
 els.drop.addEventListener('click', () => els.file.click());
 els.replace.addEventListener('click', () => els.file.click());
@@ -376,19 +234,17 @@ for (const target of [els.drop, els.viewer]) {
 // Assistant
 // ---------------------------------------------------------------------------
 
+// General questions only, since the assistant does not see the scan. After a
+// prediction they turn to the predicted condition in general terms.
 function renderSuggestions() {
   let qs;
-  if (state.patient.symptoms.length) {
-    qs = state.label
-      ? ['Does the history fit this scan?', 'What do you recommend I do next?']
-      : ['What could explain these symptoms?', 'What do you recommend I do next?'];
-  } else if (state.label === 'NORMAL') {
-    qs = ['What does this scan show?', 'What features would an abnormal scan show?', 'What are the limits of this model?'];
+  if (state.label === 'NORMAL') {
+    qs = ['What does a healthy macula look like on OCT?', 'What are the earliest OCT signs of AMD?'];
   } else if (state.label) {
     const name = SPOKEN[state.label];
-    qs = ['What does this scan show?', `How is ${name} usually managed?`, `What distinguishes ${name} on OCT?`];
+    qs = [`What are the signs of ${name}?`, `How is ${name} usually managed?`];
   } else {
-    qs = ['What could cause flashes and a shadow in one eye?', 'How is DME distinguished from CNV on OCT?'];
+    qs = ['How is DME distinguished from CNV on OCT?', 'What are the treatment options for neovascular AMD?'];
   }
   els.suggestions.replaceChildren(...qs.map((q) => {
     const b = document.createElement('button');
@@ -450,17 +306,9 @@ function addMessage(role, content, sources) {
   } else {
     node = document.createElement('div');
     node.className = 'msg-bot';
-    const cite = Boolean(sources && sources.length);
-    const [body, actions] = splitActions(content);
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.innerHTML = renderMarkdown(body, { cite });
-    // The closing actions stay in the answer, set off by a rule, like the plan at
-    // the end of a clinical note.
-    if (actions && actions.trim()) {
-      bubble.insertAdjacentHTML('beforeend', `<section class="actions">
-          <h4>Recommended actions</h4>${renderMarkdown(actions, { cite })}</section>`);
-    }
+    bubble.innerHTML = renderMarkdown(content, { cite: Boolean(sources && sources.length) });
     node.append(bubble);
     if (sources) node.append(sourcesBlock(sources));
   }
@@ -563,10 +411,7 @@ async function ask(text) {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: state.messages, scan_id: state.scanId, session_id: state.sessionId,
-        patient: patientPayload(),
-      }),
+      body: JSON.stringify({ messages: state.messages, session_id: state.sessionId }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'The assistant could not answer.');
     let data = null;
@@ -636,5 +481,4 @@ els.messages.addEventListener('click', (e) => {
   passage.classList.add('flash');
 });
 
-renderSymptomChips();
 renderSuggestions();
