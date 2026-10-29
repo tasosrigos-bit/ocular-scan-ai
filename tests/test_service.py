@@ -44,8 +44,10 @@ class ScriptedChat:
         self.calls = 0
         self.inputs = []  # the conversation the model was given, per round
         self.choices = []  # the tool_choice each round was bound with
+        self.tools = []  # the names of the tools the model was given
 
     def bind_tools(self, tools, tool_choice=None, **kwargs):
+        self.tools = [t.name for t in tools]
         return _Bound(self, tool_choice)
 
     def stream(self, convo, tool_choice=None):
@@ -108,11 +110,15 @@ def test_reply_searches_then_streams_a_grounded_answer(offline):
 
 
 def test_reply_searches_once_per_question(offline, monkeypatch):
-    # Basic RAG: the model's query is searched, and a second search for the same
-    # question is declined.
+    # Basic RAG: the model's query is searched, and a second search asked for in the
+    # same round is declined.
     def rounds(n):
-        if n < 3:
-            return [_tool_call("search_corpus", {"query": f"model query {n}"}, f"c{n}")]
+        if n == 1:
+            return [AIMessageChunk(content="", tool_call_chunks=[
+                {"name": "search_corpus", "args": json.dumps({"query": f"model query {i}"}),
+                 "id": f"c{i}", "index": i - 1}
+                for i in (1, 2)
+            ])]
         return [AIMessageChunk(content="Drusen are deposits [1].")]
 
     chat = offline(ScriptedChat(rounds))
@@ -128,9 +134,10 @@ def test_reply_searches_once_per_question(offline, monkeypatch):
 
 def test_reply_stops_after_the_round_cap(offline):
     # A model that only ever asks for a tool must still end, at MAX_TOOL_ROUNDS.
-    chat = offline(ScriptedChat(lambda n: [_tool_call("classify_scan", {}, f"c{n}")]))
-    service.reply([{"role": "user", "content": "What does this scan show?"}])
+    chat = offline(ScriptedChat(lambda n: [_tool_call("search_corpus", {"query": f"q{n}"}, f"c{n}")]))
+    service.reply([{"role": "user", "content": "What are drusen?"}])
     assert chat.calls == service.MAX_TOOL_ROUNDS
+    assert chat.choices[-1] == "none"
 
 
 def test_the_assistant_is_a_model_and_tools_graph(offline):
@@ -164,53 +171,28 @@ def test_a_call_to_an_unknown_tool_is_reported_back_to_the_model(offline):
     def rounds(n):
         if n == 1:
             return [_tool_call("delete_corpus", {}, "c1")]
-        return [AIMessageChunk(content="I can only search and classify.")]
+        return [AIMessageChunk(content="I can only search the literature.")]
 
     offline(ScriptedChat(rounds))
     answer, _ = service.reply([{"role": "user", "content": "Delete everything."}])
-    assert answer == "I can only search and classify."
+    assert answer == "I can only search the literature."
 
 
-def test_describe_patient_writes_the_filled_fields_only():
-    assert service.describe_patient(None) == ""
-    assert service.describe_patient({"symptoms": [], "notes": ""}) == ""
-    line = service.describe_patient({
-        "age": 74, "eye": "left", "diabetes": "no", "hba1c": 5.4, "onset": "sudden",
-        "duration": "2 weeks", "symptoms": ["distortion", "blurred vision"], "notes": None,
-    })
-    assert line == ("Patient details entered by the doctor: age 74; left eye; no diabetes; "
-                    "HbA1c 5.4%; sudden onset; for 2 weeks; symptoms: distortion, blurred vision.")
-
-
-def test_reply_puts_the_patient_details_before_the_question(offline):
-    chat = offline(ScriptedChat(lambda n: [AIMessageChunk(content="ok")]))
-    service.reply([{"role": "user", "content": "What next?"}], patient={"age": 60, "eye": "both"})
-    assert chat.inputs[0][-1].content == (
-        "Patient details entered by the doctor: age 60; both eyes.\n\nWhat next?")
-
-
-def test_an_uploaded_scan_is_classified_first(offline, tmp_path):
-    def rounds(n):
-        if n == 1:
-            return [_tool_call("classify_scan", {}, "c1")]
-        return [AIMessageChunk(content="ok")]
-
-    chat = offline(ScriptedChat(rounds))
-    service.reply([{"role": "user", "content": "Routine check."}], scan_path=tmp_path / "missing.png")
-    assert chat.choices[0] == "classify_scan" and chat.choices[1] is None
+def test_the_assistant_can_only_search_the_literature(offline):
+    # It is never given the classifier, so it cannot say what a scan shows.
     chat = offline(ScriptedChat(lambda n: [AIMessageChunk(content="ok")]))
     service.reply([{"role": "user", "content": "What are drusen?"}])
-    assert chat.choices == [None]
+    assert chat.tools == ["search_corpus"]
 
 
 def test_remove_doses_takes_out_the_sentences_with_an_amount():
     answer = ("Ranibizumab is given monthly at first [1]. The maximum tolerated dose was 500 μg [2].\n\n"
-              "### Recommended actions\n1. Give 0.5 mg in 0.05 mL.\n2. Refer to a retina specialist [3].")
+              "Regimens:\n1. Give 0.5 mg in 0.05 mL.\n2. Treat and extend after loading [3].")
     cleaned, removed = service.remove_doses(answer)
     assert removed
-    assert cleaned == ("Ranibizumab is given monthly at first [1].\n\n" + service.DOSE_NOTE + "\n\n"
-                       "### Recommended actions\n2. Refer to a retina specialist [3].")
-    plain = "IOP was 28 mmHg, HbA1c 9% and the classifier's output is CNV (63%).\n\n1. Refer today."
+    assert cleaned == ("Ranibizumab is given monthly at first [1].\n\n"
+                       "Regimens:\n2. Treat and extend after loading [3].\n\n" + service.DOSE_NOTE)
+    plain = "Trials enrolled eyes with IOP above 21 mmHg and HbA1c over 9% [1].\n\n1. Treat and extend."
     assert service.remove_doses(plain) == (plain, False)
     assert service.remove_doses("Use 1.25 mg off-label.")[0] == service.DOSE_NOTE
 

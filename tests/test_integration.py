@@ -34,10 +34,9 @@ def test_the_delivered_model_classifies_a_clinic_dme_scan():
     assert not np.allclose(result["overlay"], result["overlay"][0, 0])
 
 
-def test_predict_endpoint_end_to_end(monkeypatch, tmp_path):
+def test_predict_endpoint_end_to_end():
     from app import api
 
-    monkeypatch.setattr(api, "UPLOADS", tmp_path)
     with TestClient(api.app) as client:  # runs the lifespan, loading the real model
         res = client.post("/api/predict", files={"file": ("scan.png", SCAN.read_bytes(), "image/png")})
     assert res.status_code == 200
