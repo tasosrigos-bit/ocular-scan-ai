@@ -43,14 +43,24 @@ class ScriptedChat:
         self.rounds = rounds
         self.calls = 0
         self.inputs = []  # the conversation the model was given, per round
+        self.choices = []  # the tool_choice each round was bound with
 
-    def bind_tools(self, tools, **kwargs):
-        return self
+    def bind_tools(self, tools, tool_choice=None, **kwargs):
+        return _Bound(self, tool_choice)
 
-    def stream(self, convo):
+    def stream(self, convo, tool_choice=None):
         self.calls += 1
         self.inputs.append(list(convo))
+        self.choices.append(tool_choice)
         yield from self.rounds(self.calls)
+
+
+class _Bound:
+    def __init__(self, chat, tool_choice):
+        self.chat, self.tool_choice = chat, tool_choice
+
+    def stream(self, convo):
+        return self.chat.stream(convo, self.tool_choice)
 
 
 def _tool_call(name, args, call_id):
@@ -177,3 +187,39 @@ def test_reply_puts_the_patient_details_before_the_question(offline):
     service.reply([{"role": "user", "content": "What next?"}], patient={"age": 60, "eye": "both"})
     assert chat.inputs[0][-1].content == (
         "Patient details entered by the doctor: age 60; both eyes.\n\nWhat next?")
+
+
+def test_an_uploaded_scan_is_classified_first(offline, tmp_path):
+    def rounds(n):
+        if n == 1:
+            return [_tool_call("classify_scan", {}, "c1")]
+        return [AIMessageChunk(content="ok")]
+
+    chat = offline(ScriptedChat(rounds))
+    service.reply([{"role": "user", "content": "Routine check."}], scan_path=tmp_path / "missing.png")
+    assert chat.choices[0] == "classify_scan" and chat.choices[1] is None
+    chat = offline(ScriptedChat(lambda n: [AIMessageChunk(content="ok")]))
+    service.reply([{"role": "user", "content": "What are drusen?"}])
+    assert chat.choices == [None]
+
+
+def test_remove_doses_takes_out_the_sentences_with_an_amount():
+    answer = ("Ranibizumab is given monthly at first [1]. The maximum tolerated dose was 500 μg [2].\n\n"
+              "### Recommended actions\n1. Give 0.5 mg in 0.05 mL.\n2. Refer to a retina specialist [3].")
+    cleaned, removed = service.remove_doses(answer)
+    assert removed
+    assert cleaned == ("Ranibizumab is given monthly at first [1].\n\n" + service.DOSE_NOTE + "\n\n"
+                       "### Recommended actions\n2. Refer to a retina specialist [3].")
+    plain = "IOP was 28 mmHg, HbA1c 9% and the classifier's output is CNV (63%).\n\n1. Refer today."
+    assert service.remove_doses(plain) == (plain, False)
+    assert service.remove_doses("Use 1.25 mg off-label.")[0] == service.DOSE_NOTE
+
+
+def test_the_streamed_text_never_shows_a_dose(offline):
+    pieces = ["Aflibercept is given ", "every 8 weeks [1]. The dose is ", "2 mg in 0.05 ",
+              "mL [2]. Take it from the label."]
+    offline(ScriptedChat(lambda n: [AIMessageChunk(content=p) for p in pieces]))
+    shown = []
+    answer, _ = service.reply([{"role": "user", "content": "Aflibercept dose?"}], on_text=shown.append)
+    assert "".join(shown) == "Aflibercept is given every 8 weeks [1]. Take it from the label."
+    assert "2 mg" not in answer and answer.endswith(service.DOSE_NOTE)

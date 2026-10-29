@@ -91,7 +91,7 @@ def test_a_question_is_traced_round_by_round(recorded, monkeypatch, tiny_index):
     assert question.inputs["earlier_turns"] == []
     assert question.outputs["answer"] == "Drusen are deposits [1]."
     assert question.outputs["passages"].startswith("[1] (Article A - Results)")
-    assert question.tags == {"searched": "true", "prompt_version": "unknown"}
+    assert question.tags == {"searched": "true", "doses_removed": "false", "prompt_version": "unknown"}
     assert first_round.outputs["tool_calls"] == [
         {"name": "search_corpus", "args": {"query": "drusen deposits"}}
     ]

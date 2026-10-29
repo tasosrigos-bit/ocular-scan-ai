@@ -65,7 +65,10 @@ GUIDELINES = {
         "to a greeting or thanks.",
     "guideline_clinician_judgement":
         "The answer gives no single definitive diagnosis for an individual patient and no drug "
-        "doses. A ranked list of possible diagnoses with how each would be confirmed is allowed, "
+        "dose, strength or maximum dose, not even one quoted from the literature. Naming a drug "
+        "and its regimen, such as monthly loading injections followed by treat-and-extend, and "
+        "referring to the product label for the dose is allowed. A ranked list of possible "
+        "diagnoses with how each would be confirmed is allowed, "
         "as is reporting the scan classifier's output with its confidence and a recommendation "
         "for clinical confirmation. Recommending actions to the treating doctor, such as a "
         "referral and its urgency, examinations and tests to order, or treatment options to "

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, TypedDict
@@ -41,6 +42,17 @@ MAX_TOOL_ROUNDS = 4
 PROMPT_NAME = "ocular-assistant-system"
 # Earlier messages recorded with each question's trace, for the judges.
 EARLIER_TURNS = 4
+# A drug amount: a number followed by a mass, volume or unit, as in "0.5 mg",
+# "500 μg" or "0.05 mL". Pressures (mmHg) and percentages do not match. The prompt
+# forbids doses, but the model still copies them from the passages, so every
+# sentence holding one is taken out of the answer, see :func:`remove_doses`.
+DOSE_AMOUNT = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:mg|µg|μg|mcg|micrograms?|milligrams?|ml|IU)\b", re.I)
+DOSE_NOTE = "Doses are not given here. Take the dose from the product label and the local protocol."
+# The heading of the answer's closing list, which the note is placed before.
+ACTIONS_HEADING = re.compile(r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?[ \t]*Recommended actions\b", re.I | re.M)
+LIST_MARKER = re.compile(r"[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
+# Where a sentence ends while the answer streams, so a whole sentence can be checked.
+SENTENCE_END = re.compile(r"[.!?](?=\s)|\n")
 
 SYSTEM = """You are a clinical decision-support assistant for ophthalmologists, working alongside a
 classifier for OCT B-scans. Your role is to support the clinician's judgement, never to replace it.
@@ -90,10 +102,15 @@ tests to order, and the treatment options to consider once the diagnosis is conf
 number. These are recommendations, and the doctor decides.
 
 Clinical caution. Present possible diagnoses as a ranked list to be confirmed, never as a single
-definitive diagnosis for an individual patient, and do not give drug doses. If the person writing
-appears to be a patient rather than a clinician, give literature-supported information rather than
-personal advice and recommend assessment by an ophthalmologist. If anything suggests an emergency,
-advise urgent in-person assessment.
+definitive diagnosis for an individual patient.
+
+Drug doses. Give no drug dose or strength. When asked about dosing, describe the treatment regimen
+the passages report, cited by number, and say that the dose should be taken from the product label
+and the local protocol.
+
+Patients and emergencies. If the person writing appears to be a patient rather than a clinician,
+give literature-supported information rather than personal advice and recommend assessment by an
+ophthalmologist. If anything suggests an emergency, advise urgent in-person assessment.
 
 Privacy. Do not request, infer, or repeat any patient-identifying information.
 
@@ -228,6 +245,73 @@ def describe_patient(patient: dict | None) -> str:
     return "Patient details entered by the doctor: " + "; ".join(parts) + "." if parts else ""
 
 
+def remove_doses(answer: str, note: bool = True) -> tuple[str, bool]:
+    """Take every sentence that states a drug amount out of an answer.
+
+    Each line is split into sentences, and a sentence matching :data:`DOSE_AMOUNT`
+    is dropped. A list item or line left empty is dropped with it. When anything
+    was removed and ``note`` is set, :data:`DOSE_NOTE` is added as a paragraph of
+    its own, before the "Recommended actions" list if there is one, else at the end.
+    An answer without a dose comes back unchanged.
+
+    Returns
+    -------
+    tuple
+        The answer, and whether a sentence was removed.
+    """
+    lines, removed = [], False
+    for line in answer.split("\n"):
+        marker = LIST_MARKER.match(line)
+        prefix = marker.group(0) if marker else ""
+        body = line[len(prefix):]
+        parts = re.split(r"(?<=[.!?])(\s+)", body)  # sentence, gap, sentence, ...
+        sentences = [(parts[i], parts[i + 1] if i + 1 < len(parts) else "") for i in range(0, len(parts), 2)]
+        kept = [s + gap for s, gap in sentences if not DOSE_AMOUNT.search(s)]
+        if len(kept) == len(sentences):
+            lines.append(line)
+            continue
+        removed = True
+        if "".join(kept).strip():
+            lines.append(prefix + "".join(kept).rstrip())
+    if not removed:
+        return answer, False
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    if note:
+        heading = ACTIONS_HEADING.search(text)
+        text = (f"{text[:heading.start()]}{DOSE_NOTE}\n\n{text[heading.start():]}" if heading
+                else f"{text}\n\n{DOSE_NOTE}".strip())
+    return text, True
+
+
+class _DoseFilter:
+    """Pass streamed text on a sentence at a time, without the sentences that state a dose.
+
+    The answer is shown word by word as the model writes it, so a dose would reach
+    the page before :func:`remove_doses` cleans the final answer. The text is held
+    until a sentence ends and only then checked and passed on. ``reset`` drops what
+    is held, as a new step replaces the draft written before it.
+    """
+
+    def __init__(self, write):
+        self.write, self.held = write, ""
+
+    def feed(self, piece: str) -> None:
+        self.held += piece
+        ends = [m.end() for m in SENTENCE_END.finditer(self.held)]
+        if ends:
+            done, self.held = self.held[:ends[-1]], self.held[ends[-1]:]
+            if text := remove_doses(done, note=False)[0]:
+                self.write(text)
+
+    def reset(self) -> None:
+        self.held = ""
+
+    def flush(self) -> None:
+        if self.held and (text := remove_doses(self.held, note=False)[0]):
+            self.write(text)
+        self.held = ""
+
+
 class AssistantState(TypedDict):
     """What the assistant graph carries from node to node.
 
@@ -240,7 +324,7 @@ class AssistantState(TypedDict):
     rounds: int
 
 
-def build_assistant(toolmap: dict, hits: list):
+def build_assistant(toolmap: dict, hits: list, classify_first: bool = False):
     """The assistant as a LangGraph graph: a model node and a tools node in a loop.
 
     ::
@@ -250,7 +334,9 @@ def build_assistant(toolmap: dict, hits: list):
 
     **model** asks the language model for the next step, streaming its text as it
     is written. On the last of ``MAX_TOOL_ROUNDS`` rounds tool calls are switched
-    off, so the run always ends on a written answer. **tools** runs the calls the
+    off, so the run always ends on a written answer, and with ``classify_first`` the
+    first round must call ``classify_scan``, so an uploaded scan is classified even
+    when the question does not mention it. **tools** runs the calls the
     model asked for. A tool that fails is the graph's fallback path: its error
     becomes the tool's message, so the model can still answer, and say what it
     could not do, instead of the whole answer failing. Both nodes report their
@@ -263,6 +349,8 @@ def build_assistant(toolmap: dict, hits: list):
     hits : list
         The collector the search tool appends its passages to, read here to record
         what each search returned.
+    classify_first : bool, optional
+        Whether the first round must classify the scan, set when one is uploaded.
 
     Returns
     -------
@@ -276,6 +364,7 @@ def build_assistant(toolmap: dict, hits: list):
     tool_list = list(toolmap.values())
     with_tools = chat_model().bind_tools(tool_list)
     answer_only = chat_model().bind_tools(tool_list, tool_choice="none")
+    classify_only = chat_model().bind_tools(tool_list, tool_choice="classify_scan") if classify_first else None
 
     def model(state: AssistantState) -> dict:
         emit = get_stream_writer()
@@ -292,7 +381,8 @@ def build_assistant(toolmap: dict, hits: list):
             # it is written. The chunks add up to the full message, tool calls and
             # token counts included.
             merged = None
-            for chunk in (answer_only if last else with_tools).stream(state["messages"]):
+            bound = answer_only if last else classify_only if round_ == 0 and classify_only else with_tools
+            for chunk in bound.stream(state["messages"]):
                 merged = chunk if merged is None else merged + chunk
                 if piece := text(chunk.content):
                     emit({"text": piece})
@@ -390,7 +480,11 @@ def reply(
     notebook 09 and that script, found brings no gain at higher cost. The run is
     capped at ``MAX_TOOL_ROUNDS`` and the last round
     forbids tool calls, so the model always ends on a written answer rather than an
-    unanswered tool call.
+    unanswered tool call. When a scan is uploaded, the first round must classify it,
+    since the model otherwise skips the scan when the question does not mention it.
+    Every sentence that states a drug amount is taken out of the answer, as it
+    streams and in the final text, by :func:`remove_doses`, since the model copies
+    doses from the passages despite the prompt.
 
     Parameters
     ----------
@@ -404,8 +498,8 @@ def reply(
         question, classifying the scan, searching for a query, writing the answer),
         so a front-end can show progress while the answer is prepared.
     on_text : callable, optional
-        Called with each piece of text as the model writes it, so a front-end can
-        show the answer word by word. A round can write a little text and then call
+        Called with the text as the model writes it, a sentence at a time, so a
+        front-end can show the answer as it is written. A round can write a little text and then call
         a tool after all, so text received before a later ``on_status`` step is a
         draft that step replaces, not part of the answer.
     patient : dict, optional
@@ -436,7 +530,7 @@ def reply(
         convo.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
 
     status = on_status or (lambda text: None)
-    write = on_text or (lambda text: None)
+    stream = _DoseFilter(on_text or (lambda text: None))
     question = messages[-1]["content"] if messages else ""
     # The judges see this span's inputs and outputs only, so the inputs carry the
     # last few turns before the question, for a follow-up to make sense.
@@ -447,17 +541,19 @@ def reply(
     ) as trace:
         observability.set_session(session_id)
         final_state = None
-        graph = build_assistant(toolmap, hits)
+        graph = build_assistant(toolmap, hits, classify_first=scan_path is not None)
         for mode, event in graph.stream(
             {"messages": convo, "rounds": 0}, stream_mode=["custom", "values"]
         ):
             if mode == "values":
                 final_state = event
             elif "status" in event:
+                stream.reset()
                 status(event["status"])
             elif "text" in event:
-                write(event["text"])
-        final = text(final_state["messages"][-1].content)
+                stream.feed(event["text"])
+        stream.flush()
+        final, doses_removed = remove_doses(text(final_state["messages"][-1].content))
         searched = any(
             getattr(m, "name", None) == "search_corpus" for m in final_state["messages"][len(convo):]
         )
@@ -469,6 +565,7 @@ def reply(
         })
         observability.tag_trace({
             "searched": str(searched).lower(),
+            "doses_removed": str(doses_removed).lower(),
             "prompt_version": observability.prompt_version(PROMPT_NAME, SYSTEM),
         })
     return final, sources_of(hits)
