@@ -1,17 +1,128 @@
-# ocular-scan-ai
+# Ocular Scan AI
 
 [![tests](https://github.com/tasosrigos-bit/ocular-scan-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/tasosrigos-bit/ocular-scan-ai/actions/workflows/tests.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-ConvNeXt--Tiny-EE4C2C?logo=pytorch&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-RAG%20agent-1C3C3C)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
-Retinal OCT B-scan classification into CNV, DME, DRUSEN and NORMAL, trained on one
-acquisition device and measured on devices that were absent from training. The
-central question is not accuracy on a held-out split of the training set, which is
-inflated by shared patients and a shared device, but whether the model still works
-on a scanner it has never seen. The drusen class is the hardest, so it is tracked
-throughout as the primary signal.
+**A retinal OCT classifier that is tested on scanners it never saw in training, next
+to a literature assistant that answers ophthalmology questions with a citation for
+every claim.**
 
-Alongside the classifier, the project builds a retrieval-augmented assistant that
-answers ophthalmology questions from a curated journal corpus, and a web
-application that puts the two together in front of a clinician.
+Most OCT models are scored on a held-out slice of the dataset they were trained on, which
+shares both the patients and the scanner. This project asks the question a clinic would
+ask instead: does the model still work on *our* machine? It trains on one device, picks
+its configuration on a second, and confirms the result on real scans from a third.
+
+![The application: an OCT B-scan classified as CNV with its Grad-CAM heat map, beside the literature assistant answering "What are the signs of CNV?" with numbered citations](docs/app.png)
+
+<sub>A public Kermany test scan classified as CNV, with Grad-CAM showing where the model
+looked. Beside it, the assistant answers a general question from the indexed literature,
+and each number opens the passage it cites.</sub>
+
+## Highlights
+
+- **Found and fixed data leakage.** 89 percent of the patients in the standard Kermany
+  test split also appear in its training split. Everything here is measured on a
+  rebuilt patient-level split instead.
+- **Measured across devices.** Trained on Heidelberg Spectralis, the delivered model
+  reaches 94.5% accuracy (macro-F1 0.931) on 1,137 Optovue scans from OCTDL. On 37 real
+  scans from an OPTOPOL clinic device it gets 27 right.
+- **An honest failure analysis.** On the clinic scans every CNV, DME and normal scan is
+  correct (15 of 15), and drusen accounts for all ten errors. Drusen recall falls from
+  0.996 on the training device to 0.828 on OCTDL and 0.545 at the clinic, so the
+  weakness lies in the change of scanner rather than in the class itself.
+- **Explainable predictions.** Grad-CAM shows where the network looked, and the
+  application can switch between the original scan, the preprocessed model input and
+  the heat map.
+- **A grounded literature assistant.** A LangGraph agent searches 8,535 open-access
+  ophthalmology articles from PubMed Central. Retrieval is hybrid (dense embeddings
+  plus BM25, fused by reciprocal rank fusion), reranked by a cross-encoder, and served
+  from Qdrant. Answers cite their sources by number. The assistant answers
+  general questions only and never says what a particular patient has, and drug doses
+  are stripped in code, not only by the prompt.
+- **Observable in production.** MLflow traces every scan analysis and every question,
+  down to each model round, tool call and retrieved passage. Six LLM judges score live
+  answers for groundedness, relevance, citations and scope, and the system prompt is
+  versioned in the MLflow Prompt Registry.
+- **Reproducible.** Every number in the Results section comes from a committed CSV written
+  by a script. 116 tests run in GitHub Actions, and Docker Compose starts the
+  application with Qdrant and MLflow.
+
+## Results
+
+**The classifier** is ConvNeXt-Tiny at 384×256, fine-tuned for one epoch on the full
+Kermany training split. The one-epoch schedule was fixed in advance, because transfer
+to the other devices degrades after the first epoch. It was not chosen by reading the
+best epoch off the evaluation sets.
+
+| Evaluation set | Device | Role | Accuracy | Macro-F1 | Drusen recall |
+| --- | --- | --- | --- | --- | --- |
+| Kermany, held-out patients | Heidelberg Spectralis | same device as training | 94.8% | 0.948 | 0.996 |
+| OCTDL, 1,137 scans | Optovue Avanti | model selection | 94.5% | 0.931 | 0.828 |
+| Clinic, 37 scans | OPTOPOL | confirmation only | 73.0% (27/37) | 0.731 | 0.545 (12/22) |
+
+The configuration was chosen through two screens, each ranked on OCTDL. The first
+screened the preprocessing (retina crop, curvature correction, frame shape). The
+second screened the backbone, comparing ConvNeXt-Tiny, ResNet-50, ViT-B/16 and a small
+custom CNN. The clinic scans were never used to choose anything.
+
+**The retrieval pipeline** was first selected on a 508-article corpus, using 50
+generated questions scored by reference-free LLM judges. The chosen configuration
+(fixed-size chunks, MedEmbed, hybrid search, gte reranker) scored 1.00 on
+faithfulness, 1.00 on answer relevance and 0.83 on context precision. Moving that index
+from memory to Qdrant changed nothing that matters. Both stores find the source article
+of all 50 questions in their top five, share 4.98 of the five passages on average, and
+agree on the top passage every time. For the full 8,535-article corpus, every
+combination of chunking, embedding model, retrieval mode and reranker was compared
+again in MLflow on 75 new questions, scored against each question's known source
+passage with no language model involved. The Docker deployment uses the winner,
+section-level chunks with EmbeddingGemma.
+
+## How it works
+
+![Architecture: the classifier pipeline from upload through preprocessing and ConvNeXt-Tiny to the class probabilities and Grad-CAM; the literature assistant as a LangGraph graph, START to the model node, which calls the tools node for search_corpus (hybrid retrieval over Qdrant, then a cross-encoder rerank) and returns to the model, then END, the dose filter and the cited answer; both traced to MLflow](docs/architecture.png)
+
+The assistant is a LangGraph graph of two nodes in a loop. The **model** node asks
+Gemini for the next step. When it calls `search_corpus`, the **tools** node runs the
+hybrid search and the reranker, numbers the passages and hands them back. The model
+then writes the answer, with tool calls switched off on the last of at most two
+rounds, so every run ends on a written answer. The diagram's source is
+[docs/architecture.tex](docs/architecture.tex), drawn in TikZ.
+
+The two halves are deliberately separate. The classifier's output appears on the page
+next to the scan, and the assistant never sees the scan or its prediction. The
+assistant answers general questions about conditions, their signs, their appearance on
+OCT and their management, and leaves the diagnosis of any patient to the clinician.
+
+## Tech stack
+
+| Area | Tools |
+| --- | --- |
+| Deep learning | PyTorch, torchvision backbones (ConvNeXt, ResNet, ViT) and a custom CNN, Grad-CAM |
+| Retrieval and LLM | LangGraph, LangChain, Gemini, sentence-transformers (MedEmbed, EmbeddingGemma), BM25, gte-reranker-modernbert |
+| Serving | FastAPI with streamed answers, a plain HTML/CSS/JS front-end |
+| Data and MLOps | Qdrant, MLflow (tracing, Prompt Registry, LLM judges, evaluation datasets), Docker Compose |
+| Quality | pytest (116 tests), GitHub Actions, uv |
+
+## Quick start
+
+```bash
+uv sync
+gh release download v0.1.0 --dir experiments --pattern convnext_final_e1.pt
+gh release download v0.1.0 --pattern rag-artifacts.tar.gz && tar xzf rag-artifacts.tar.gz
+cp .env.example .env    # then set GEMINI_API_KEY
+uv run uvicorn app.api:app
+```
+
+Open http://localhost:8000. To run it with Qdrant and MLflow alongside, see *Running
+with Docker* below.
+
+---
+
+The rest of this README is the full reference: where the data comes from, how the code
+is organised, which script produces which result, and how to reproduce each of them.
 
 ## Datasets and their roles
 
@@ -262,7 +373,12 @@ The application is then at http://localhost:8000, the Qdrant dashboard at
 http://localhost:6333/dashboard and the traces at http://localhost:5001, under the
 `ocular-assistant` experiment. Each question's trace shows the language model rounds
 with their token counts, the tool calls with their arguments, and the passages the
-search returned with their scores.
+search returned with their scores. Running
+`uv run --group eval python scripts/register_monitoring.py` once registers the system
+prompt in the MLflow Prompt Registry, so every trace records the prompt version it ran
+on, and six LLM judges that score new answers as they arrive: retrieval groundedness,
+retrieval relevance, relevance to the question, citations, saying so when the
+literature falls short, and keeping to general questions without dose or diagnosis.
 
 The application uses Qdrant whenever `QDRANT_URL` is set, as it is in the compose
 file, and the in-memory index otherwise, which is what the notebooks and the tests
@@ -316,8 +432,8 @@ uv run pytest
 ```
 
 runs the fast suite, which needs none of the data, the checkpoint or an API key. It
-covers chunking, the three retrieval modes and the reciprocal rank fusion, the two
-assistant tools, the assistant's tool loop driven by a scripted model, the image
+covers chunking, the three retrieval modes and the reciprocal rank fusion, the
+literature search tool, the assistant's tool loop driven by a scripted model, the image
 preprocessing, and every API endpoint with the models replaced by stubs. GitHub
 Actions runs the same suite on every push. Two slower tests load the delivered
 checkpoint and classify a real clinic scan end to end. They are skipped when those
