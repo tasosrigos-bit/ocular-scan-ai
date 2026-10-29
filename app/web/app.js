@@ -242,7 +242,7 @@ function renderSuggestions() {
     qs = ['What does a healthy macula look like on OCT?', 'What are the earliest OCT signs of AMD?'];
   } else if (state.label) {
     const name = SPOKEN[state.label];
-    qs = [`How is ${name} usually managed?`, `What are the typical OCT features of ${name}?`];
+    qs = [`What are the signs of ${name}?`, `How is ${name} usually managed?`];
   } else {
     qs = ['How is DME distinguished from CNV on OCT?', 'What are the treatment options for neovascular AMD?'];
   }
