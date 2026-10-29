@@ -8,8 +8,9 @@ the answer is scored two ways:
 - **checks**, which need no judge: the tools called, in order, read from the
   answer's trace; the closing "Recommended actions" list; an opening that advises
   urgent assessment; text that must not appear; no drug dose; and no text from
-  the system prompt. A check
-  that does not apply to a scenario is left out rather than counted as a pass.
+  the system prompt. Each is logged as ``check_<name>``, apart from the
+  expectation of the same name. A check that does not apply to a scenario is
+  left out rather than counted as a pass.
 - **expectations_guidelines**, MLflow's ``ExpectationsGuidelines`` judge, which
   reads the scenario's own guidelines and passes only if the answer meets all of
   them.
@@ -73,12 +74,25 @@ def make_checks():
     def checks(outputs, expectations, trace):
         spans = sorted(trace.data.spans, key=lambda s: s.start_time_ns)
         called = [s.name for s in spans if s.name in sc.TOOLS]
-        # A null or empty expectation is dropped before evaluation, as MLflow stores no empty value.
-        e = {"recommended_actions": None, "urgent_first": None, "absent_text": [], **expectations}
+        # The expectations as the scenario holds them, before stored() left some out.
+        e = {"required_tools": [], "no_tools": False, "recommended_actions": None, "urgent_first": None,
+             "absent_text": [], **expectations}
         result = sc.check(e, outputs or "", called, service.SYSTEM)
-        return [Feedback(name=name, value=ok) for name, ok in result.items() if ok is not None]
+        # Named apart from the expectations, which MLflow shows on the same trace.
+        return [Feedback(name=f"check_{name}", value=ok) for name, ok in result.items() if ok is not None]
 
     return checks
+
+
+def stored(expectations: dict) -> dict:
+    """The expectations that ask for something, as logged on each trace.
+
+    A null or empty one is left out, since MLflow stores no empty value, and so is
+    ``no_tools: false``, which only means tools are allowed but would show on the
+    trace as if a check had failed.
+    """
+    return {k: v for k, v in expectations.items()
+            if v not in (None, []) and not (k == "no_tools" and v is False)}
 
 
 def summarise(experiment_id: str, run_id: str) -> None:
@@ -100,7 +114,7 @@ def summarise(experiment_id: str, run_id: str) -> None:
                 failed[case].append(a["assessment_name"])
     categories = [*sc.CATEGORIES, "all"]
     print(f"{'':24}" + "".join(f"{c[:11]:>13}" for c in categories))
-    for name in (*CHECKS, "expectations_guidelines"):
+    for name in (*(f"check_{c}" for c in CHECKS), "expectations_guidelines"):
         if name in passes:
             cells = [f"{sum(g)}/{len(g)}" if (g := passes[name].get(c)) else "-" for c in categories]
             print(f"{name:24}" + "".join(f"{x:>13}" for x in cells))
@@ -132,8 +146,7 @@ def main() -> None:
         data = data[data["tags"].map(lambda t: t["id"] in args.ids)]
         if len(data) != len(set(args.ids)):
             raise SystemExit(f"unknown ids among {args.ids}")
-    data = data[["inputs", "expectations", "tags"]].assign(
-        expectations=lambda d: d["expectations"].map(lambda e: {k: v for k, v in e.items() if v not in (None, [])}))
+    data = data[["inputs", "expectations", "tags"]].assign(expectations=lambda d: d["expectations"].map(stored))
 
     # Loaded once here rather than by the first few answers at the same time.
     service.load_index()
