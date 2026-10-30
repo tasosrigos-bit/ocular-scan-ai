@@ -15,8 +15,11 @@
 \definecolor{ink}{HTML}{1F2A30}
 \definecolor{muted}{HTML}{5B6B73}
 \definecolor{lane}{HTML}{F4F7F8}
-\definecolor{graph}{HTML}{B7791F}
-\definecolor{graphsoft}{HTML}{FDF5E6}
+% LangGraph's own drawing, as get_graph().draw_mermaid() styles it
+\definecolor{lgnode}{HTML}{F2F0FF}
+\definecolor{lgend}{HTML}{BFB6FC}
+\definecolor{lgline}{HTML}{9370DB}
+\definecolor{lgedge}{HTML}{333333}
 \definecolor{mlflow}{HTML}{0194E2}
 
 % The smaller grey line under a box's title
@@ -28,12 +31,14 @@
               inner sep=4pt, minimum height=12mm, text width=31mm, font=\small},
   io/.style={box, fill=accentsoft},
   note/.style={font=\footnotesize, text=muted},
-  gnode/.style={draw=graph, line width=1.1pt, rounded corners=7pt, fill=white, align=center,
-                minimum height=11mm, minimum width=23mm, font=\small},
-  term/.style={draw=graph, line width=1.1pt, rounded corners=9pt, fill=graph!18,
-               minimum height=8mm, minimum width=15mm, font=\footnotesize\ttfamily\bfseries},
+  gnode/.style={draw=lgline, line width=0.8pt, rounded corners=4pt, fill=lgnode, align=center,
+                minimum height=10mm, minimum width=22mm, font=\normalsize},
+  term/.style={draw=lgline, line width=0.8pt, rounded corners=4.5mm, fill=white,
+               minimum height=9mm, minimum width=24mm, font=\normalsize},
   arr/.style={-{Stealth[length=2.4mm]}, line width=0.8pt, draw=ink!75},
-  garr/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=graph},
+  % a fixed edge is solid, a conditional one dotted, as LangGraph draws them
+  garr/.style={-{Triangle[length=2.6mm, width=2.2mm]}, line width=0.9pt, draw=lgedge},
+  gcond/.style={garr, dash pattern=on 3pt off 2.5pt},
   lbl/.style={font=\scriptsize\itshape, text=muted, fill=white, inner sep=1.5pt},
   lanebox/.style={fill=lane, draw=ink!15, rounded corners=6pt, inner sep=10pt},
   lanetitle/.style={font=\bfseries, anchor=north west},
@@ -58,57 +63,58 @@
 \draw[arr] (cam.east) -- ++(0.45,0) |- (scanui.west);
 
 %% ---------------------------------------------------------------- assistant
+% The graph as LangGraph itself draws it (get_graph().draw_mermaid()): top to
+% bottom, __start__ to model, a dotted conditional edge from model to tools and to
+% __end__, and a solid edge from tools back to model.
 \node[io]   (q)     at (0,-5.2)    {General question\\[-1pt]{\sub from the chat}};
-\node[term] (start) at (3.1,-5.2)  {START};
-\node[gnode](model) at (5.7,-5.2)  {\textbf{model}\\[-1pt]{\sub Gemini}};
-\node[gnode](tools) at (5.7,-8.0)  {\textbf{tools}\\[-1pt]{\sub\ttfamily search\_corpus}};
-\node[term] (end)   at (8.4,-5.2)  {END};
+\node[term] (start) at (5.4,-5.2)  {\_\_start\_\_};
+\node[gnode](model) at (5.4,-6.9)  {model};
+\node[term, fill=lgend] (end) at (3.7,-9.0) {\_\_end\_\_};
+\node[gnode](tools) at (7.1,-9.0)  {tools};
 
-\draw[arr]  (q) -- (start);
-\draw[garr] (start) -- (model);
-\draw[garr] (model.south west) ++(0.45,0) coordinate (ms)
-            (ms) to[bend right=25] node[lbl, left=1pt] {tool call} ($(tools.north west)+(0.45,0)$);
-\draw[garr] ($(tools.north east)+(-0.45,0)$) to[bend right=25] node[lbl, right=1pt] {passages}
-            ($(model.south east)+(-0.45,0)$);
-\draw[garr] (model) -- node[lbl, above=2pt] {answer} (end);
+\draw[arr]   (q) -- (start);
+\draw[garr]  (start) -- (model);
+\draw[gcond] ($(model.south)+(-0.55,0)$) -- ($(end.north)+(0.35,0)$);
+\draw[gcond] ($(model.south)+(0.55,0)$) -- ($(tools.north)+(-0.35,0)$);
+\draw[garr]  ($(tools.north)+(0.45,0)$) to[out=90, in=0] ($(model.east)+(0,-0.15)$);
 
-\node[box]  (dose)  at (11.4,-5.2) {Dose filter\\[-1pt]{\sub drops any sentence\\with a drug amount}};
-\node[io]   (ans)   at (15.4,-5.2) {Cited answer\\[-1pt]{\sub streamed to the chat}};
+\node[note, align=center, text width=38mm] (rounds) at (5.2,-10.15)
+     {model calls Gemini, tools runs\\\texttt{search\_corpus}, at most two rounds};
+
+\node[box]  (dose)  at (0,-9.0)   {Dose filter\\[-1pt]{\sub drops any sentence\\with a drug amount}};
+\node[io]   (ans)   at (0,-11.3)  {Cited answer\\[-1pt]{\sub streamed to the chat}};
 \draw[arr] (end) -- (dose);
 \draw[arr] (dose) -- (ans);
 
 % the retrieval behind the tools node
-\node[box] (hybrid) at (11.4,-8.0)  {Hybrid retrieval\\[-1pt]{\sub dense + BM25, fused by RRF}};
-\node[box] (rerank) at (15.4,-8.0) {Cross-encoder rerank\\[-1pt]{\sub best five passages}};
+\node[box] (hybrid) at (11.4,-9.0)  {Hybrid retrieval\\[-1pt]{\sub dense + BM25, fused by RRF}};
+\node[box] (rerank) at (15.4,-9.0) {Cross-encoder rerank\\[-1pt]{\sub best five passages}};
 \node[cylinder, shape border rotate=90, aspect=0.22, draw=accent, line width=0.8pt, fill=accentsoft,
       minimum width=28mm, minimum height=13mm, align=center, font=\small]
-      (qdrant) at (11.4,-10.3) {Qdrant\\[-1pt]{\sub 8,535 PMC articles}};
+      (qdrant) at (11.4,-11.3) {Qdrant\\[-1pt]{\sub 8,535 PMC articles}};
 
 \draw[arr] (tools) -- node[lbl, above=2pt] {query} (hybrid);
 \draw[arr] (hybrid) -- (rerank);
 \draw[arr, {Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}] (hybrid) -- (qdrant);
 % the passages go back to the tools node below Qdrant, so no line crosses it
-\draw[arr] (rerank.south) -- (15.4,-11.5) -| node[lbl, pos=0.25, below=1pt] {numbered passages}
+\draw[arr] (rerank.south) -- (15.4,-12.6) -| node[lbl, pos=0.25, below=1pt] {numbered passages}
            ($(tools.south)+(0.5,0)$);
-
-\node[note, align=center, text width=36mm] (rounds) at (4.1,-9.45)
-     {at most two rounds,\\tools switched off in the last};
 
 %% ---------------------------------------------------------------- lanes
 % room above each lane's contents for its title
 \coordinate (aTop) at ($(upload.north west)+(0,0.75)$);
 \coordinate (bTop) at ($(q.north west)+(0,1.45)$);
-\coordinate (bBot) at (0,-11.8);
-\coordinate (gTop) at ($(model.north)+(0,0.7)$);
+\coordinate (bBot) at (0,-12.9);
+\coordinate (gTop) at ($(start.north)+(0,0.6)$);
 \begin{scope}[on background layer]
   \node[lanebox, fit=(upload)(probs)(cam)(scanui)(aTop)] (laneA) {};
   \node[lanebox, fit=(q)(qdrant)(ans)(rerank)(bTop)(bBot)] (laneB) {};
-  \node[fill=graphsoft, draw=graph!60, dashed, rounded corners=6pt, inner sep=8pt,
+  \node[fill=white, draw=lgline!45, rounded corners=6pt, inner sep=9pt,
         fit=(start)(model)(tools)(end)(gTop)(rounds)] (lg) {};
 \end{scope}
 \node[lanetitle] at ($(laneA.north west)+(0.2,-0.15)$) {Classifier \quad\mdseries\small\ttfamily POST /api/predict};
 \node[lanetitle] at ($(laneB.north west)+(0.2,-0.15)$) {Literature assistant \quad\mdseries\small\ttfamily POST /api/chat/stream};
-\node[font=\small\bfseries, text=graph, anchor=north west] at ($(lg.north west)+(0.15,-0.1)$) {LangGraph};
+\node[font=\small\bfseries, text=lgline, anchor=north west] at ($(lg.north west)+(0.15,-0.1)$) {LangGraph};
 
 \node[font=\small\itshape, text=muted] at ($(laneA.south)!0.5!(laneB.north)$)
      {The assistant never sees the scan or its prediction};

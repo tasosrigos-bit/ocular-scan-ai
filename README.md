@@ -82,9 +82,11 @@ section-level chunks with EmbeddingGemma.
 
 ## How it works
 
-![Architecture: the classifier pipeline from upload through preprocessing and ConvNeXt-Tiny to the class probabilities and Grad-CAM; the literature assistant as a LangGraph graph, START to the model node, which calls the tools node for search_corpus (hybrid retrieval over Qdrant, then a cross-encoder rerank) and returns to the model, then END, the dose filter and the cited answer; both traced to MLflow](docs/architecture.png)
+![Architecture: the classifier pipeline from upload through preprocessing and ConvNeXt-Tiny to the class probabilities and Grad-CAM; the literature assistant as LangGraph draws its graph, __start__ to the model node, with conditional edges to the tools node for search_corpus (hybrid retrieval over Qdrant, then a cross-encoder rerank) and to __end__, and a fixed edge from tools back to model; then the dose filter and the cited answer; both traced to MLflow](docs/architecture.png)
 
-The assistant is a LangGraph graph of two nodes in a loop. The **model** node asks
+The assistant is a LangGraph graph of two nodes in a loop, drawn the way LangGraph's
+own `get_graph().draw_mermaid()` draws it: solid edges always run, dotted ones are
+the conditional branches the model chooses between. The **model** node asks
 Gemini for the next step. When it calls `search_corpus`, the **tools** node runs the
 hybrid search and the reranker, numbers the passages and hands them back. The model
 then writes the answer, with tool calls switched off on the last of at most two
